@@ -168,3 +168,79 @@ build portable to any CI/deploy environment on JDK 21+, while still running fine
 installed JDK 24.
 
 **What it costs:** Nothing — this is a compile-target choice, not a runtime constraint.
+
+---
+
+## 2026-08-08 — Spring Boot 4.0.7, not 3.x
+
+**What changed:** The backend runs on Spring Boot 4.0.7 (Spring Framework 7, Spring Security 7,
+Hibernate 7), not the 3.x line `CLAUDE.md` originally specified. `CLAUDE.md`'s tech-stack line has
+been updated to match. New-style starter artifact ids apply throughout (`spring-boot-starter-
+webmvc` not `-web`, `spring-boot-starter-flyway`, per-module test starters like `spring-boot-
+starter-actuator-test` instead of one shared `spring-boot-starter-test`) — these only exist from
+Spring Boot 4.0 onward, confirmed against Maven Central directly rather than assumed.
+
+**Why:** The initial scaffold's `pom.xml` already used the new-style starter names (just with an
+invalid `4.0.7.RELEASE` version string — modern Spring Boot dropped the `.RELEASE` suffix). Given
+a choice between rewriting to match `CLAUDE.md`'s 3.x pin or fixing the version typo and keeping
+4.0.7, the user chose 4.0.7 to match what was already there.
+
+**What it costs:** A few Spring Boot 4.0 API changes had to be worked around, each verified
+against the actual jar contents rather than assumed from pre-4.0 knowledge: `EndpointRequest` was
+removed from Actuator's security autoconfiguration (used a plain path matcher instead);
+`TestRestTemplate` moved package to `org.springframework.boot.resttestclient` and needs
+`@AutoConfigureTestRestTemplate` explicitly (no longer auto-configured by
+`@SpringBootTest(webEnvironment = RANDOM_PORT)` alone) plus a `spring-boot-restclient` test
+dependency for `RestTemplateBuilder`. Revisit if a reason emerges to pin back to 3.5.x.
+
+---
+
+## 2026-08-08 — citext columns: no `@JdbcTypeCode(SqlTypes.OTHER)`
+
+**What changed:** `User.email` (Postgres `citext`) is mapped as a plain JPA `String` with
+`@Column(columnDefinition = "citext")` and no `@JdbcTypeCode` override.
+
+**Why:** The obvious-looking fix for a Hibernate `ddl-auto=validate` type mismatch on a custom
+Postgres type (`found [citext], expecting [varchar(255)]`) is `@JdbcTypeCode(SqlTypes.OTHER)`.
+That fixes validation but breaks every query against the column at runtime — Hibernate then binds
+the parameter as `bytea`, and Postgres rejects it (`operator does not exist: citext = bytea`).
+`columnDefinition = "citext"` alone satisfies the validator without changing how the parameter is
+bound, so plain-`String` binding (which citext accepts natively) keeps working.
+
+**What it costs:** Nothing functional — this is a corrected mapping, not a simplification. Worth
+remembering if another `citext`/custom-Postgres-type column is added later.
+
+---
+
+## 2026-08-08 — Registration doesn't fully hide email-already-registered
+
+**What changed:** `POST /auth/register` returns `409 AUTH_EMAIL_ALREADY_REGISTERED` (a new error
+code, not in the original spec table) when the email is already taken — this does reveal account
+existence. Login-side enumeration mitigation (uniform `AUTH_INVALID_CREDENTIALS` for both wrong
+password and unknown email, with a dummy BCrypt check to normalize timing) is fully implemented.
+
+**Why:** The spec's "no user enumeration" note covers both login and registration, but full
+non-enumeration on registration structurally requires an async, email-verification-gated flow
+("if this email isn't registered, you'll get a link") — which conflicts with this phase's
+auto-verify, synchronous-201-response registration (itself a documented deviation above). Building
+the async flow just to hide this would be scope creep ahead of a feature (real email delivery)
+that isn't built yet.
+
+**What it costs:** An attacker can enumerate registered emails via the register endpoint (not via
+login). Acceptable for a dev build with no real user base; revisit alongside real email delivery.
+
+---
+
+## 2026-08-08 — Error codes added beyond the original table
+
+**What changed:** `specs/03-api-and-errors.md`'s error code table has been extended with
+`AUTH_EMAIL_ALREADY_REGISTERED` (409), `DOCUMENT_NOT_FOUND` (404), `SUMMARY_NOT_FOUND` (404),
+`NOT_FOUND` (404, unmapped routes), and `INTERNAL_ERROR` (500, unhandled exceptions).
+
+**Why:** The original table covers the codes the spec text called out explicitly, but building the
+actual endpoints surfaced a few gaps it didn't spell out (an owner-scoped GET/DELETE needs a
+not-found code; the RFC 9457 handler needs *something* to return for a truly unexpected exception
+or an unmapped route). Adding them here rather than leaving them as unlabeled ad hoc strings in
+code.
+
+**What it costs:** Nothing — this is filling a gap, not a deviation from intent.

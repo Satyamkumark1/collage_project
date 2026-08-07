@@ -6,8 +6,9 @@ itself.
 
 ## Tech stack
 
-- **Backend:** Spring Boot 3.x, Java 21 language level (JDK 24 installed locally, `--release 21`
-  keeps bytecode portable), Maven (no Gradle in this environment).
+- **Backend:** Spring Boot 4.0.7 (Spring Framework 7, Spring Security 7, Hibernate 7 — see
+  `docs/DECISIONS.md`), Java 21 language level (JDK 24 installed locally, `--release 21` keeps
+  bytecode portable), Maven (no Gradle in this environment).
 - **DB:** Postgres (local Homebrew Postgres 15 for now; Neon planned for prod — see
   `docs/DECISIONS.md`) + `pgvector`. Flyway migrations only, `ddl-auto=validate` always.
 - **AI:** Groq (chat, OpenAI-compatible API) + Voyage AI (embeddings, `voyage-4-lite`). Model IDs

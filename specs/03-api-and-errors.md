@@ -44,6 +44,11 @@ the frontend, keyed by `code` — never render `detail` directly to a user.
 | `QUOTA_UPLOADS_EXCEEDED` | 402 | Monthly upload cap hit |
 | `QUOTA_AI_EXCEEDED` | 402 | Monthly AI job cap hit |
 | `VALIDATION_FAILED` | 400 | Request body failed bean validation |
+| `AUTH_EMAIL_ALREADY_REGISTERED` | 409 | Email already has an account (not in original spec — added during build, see `/docs/DECISIONS.md`) |
+| `DOCUMENT_NOT_FOUND` | 404 | Owner-scoped GET/DELETE found no matching document (added during build) |
+| `SUMMARY_NOT_FOUND` | 404 | Owner-scoped GET found no matching summary (added during build) |
+| `NOT_FOUND` | 404 | Unmapped route (added during build) |
+| `INTERNAL_ERROR` | 500 | Unhandled exception, never leaks detail (added during build) |
 
 Codes reserved for later phases (`AUTH_EMAIL_UNVERIFIED`, `RATE_LIMITED`,
 `PAYMENT_SIGNATURE_INVALID`, `TUTOR_OUT_OF_SCOPE`, etc.) are listed in the original spec and will

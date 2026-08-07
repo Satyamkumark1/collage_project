@@ -11,6 +11,31 @@ spring:
     open-in-view: false
   flyway:
     enabled: true
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+
+studyflow:
+  jwt:
+    secret: ${JWT_SECRET}
+    access-token-ttl-minutes: 15
+    issuer: studyflow-ai
+    audience: studyflow-ai-clients
+  cors:
+    allowed-origin: ${CORS_ALLOWED_ORIGIN}
+  cookie:
+    # Local-dev deviation: Secure+SameSite=None don't work over plain http://localhost.
+    # A prod profile would flip these to true/None. See docs/DECISIONS.md.
+    secure: false
+    same-site: Lax
+    refresh-ttl-days: 30
+  storage:
+    local-root: ${STORAGE_LOCAL_ROOT}
+  upload:
+    max-file-size-bytes: 26214400 # 25 MiB
+  quota:
+    uploads-per-month: 100
+    ai-jobs-per-month: 60
 
 management:
   endpoints:

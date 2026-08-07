@@ -9,3 +9,26 @@ spring:
     open-in-view: false
   flyway:
     enabled: true
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+
+studyflow:
+  jwt:
+    secret: 4AXSrXOAzhRxoSu4JhoyVeaiHKskpbxLXqmmsTm1/fxskyqxD2z7LW2YEkn5OIzI70angw8A/PPqubwQnXvUxA==
+    access-token-ttl-minutes: 15
+    issuer: studyflow-ai
+    audience: studyflow-ai-clients
+  cors:
+    allowed-origin: http://localhost:5173
+  cookie:
+    secure: false
+    same-site: Lax
+    refresh-ttl-days: 30
+  storage:
+    local-root: /tmp/studyflow-test-storage
+  upload:
+    max-file-size-bytes: 26214400
+  quota:
+    uploads-per-month: 100
+    ai-jobs-per-month: 60
