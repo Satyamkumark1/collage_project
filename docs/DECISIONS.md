@@ -129,6 +129,32 @@ well-regarded retrieval-quality option among hosted embedding APIs.
 providers later requires a re-embed migration, not just a config change — `model`/`model_version`
 are stored per row specifically to make that migration tractable.
 
+**Update 2026-08-08:** Confirmed live — `POST https://api.voyageai.com/v1/embeddings` with
+`model=voyage-4-lite` returns 1024-dimension vectors (usage: 4 tokens for a 5-word test string).
+`V7__chunk_embeddings.sql` uses `vector(1024)`.
+
+---
+
+## 2026-08-08 — pgvector built from source against Postgres 15
+
+**What changed:** `pgvector` 0.8.0 was compiled and installed from source
+(`PG_CONFIG=/usr/local/opt/postgresql@15/bin/pg_config make install`), not via `brew install
+pgvector`.
+
+**Why:** Homebrew's `pgvector` bottle only ships binaries built against `postgresql@17`/`@18`
+(neither installed on this machine) — it silently doesn't wire up `postgresql@15`, the version
+this project actually runs (see the Testcontainers deviation above). `CREATE EXTENSION vector`
+failed with "extension not available" until built directly against the running server's
+`pg_config`. The build itself needed the compiler's sysroot flag overridden
+(`CPPFLAGS`/`LDFLAGS` with `$(xcrun --show-sdk-path)`) because `pg_config`'s baked-in flags
+referenced a specific SDK version (`MacOSX14.sdk`) that isn't present on this machine — reused
+`pg_config`'s own other include/lib paths rather than guessing a replacement set.
+
+**What it costs:** Nothing functional — `vector`, `vector_cosine_ops`, and the HNSW index type all
+work identically to the brew-bottled version. Worth remembering if this environment's Postgres
+version ever changes: pgvector would need rebuilding the same way unless Homebrew starts bottling
+for that version.
+
 ---
 
 ## 2026-08-08 — DOCX/PPTX parsing deferred
@@ -244,3 +270,23 @@ or an unmapped route). Adding them here rather than leaving them as unlabeled ad
 code.
 
 **What it costs:** Nothing — this is filling a gap, not a deviation from intent.
+
+---
+
+## 2026-08-08 — chunk_embeddings insert needs an explicit JPA flush first
+
+**What changed:** `RagIngestionServiceImpl.ingest()` calls `chunkRepository.flush()` immediately
+after saving `document_chunks` rows and before `ChunkEmbeddingDao.insert(...)` (raw JdbcTemplate)
+writes the corresponding `chunk_embeddings` rows.
+
+**Why:** `document_chunks` is a JPA entity (Hibernate defers INSERTs until flush time);
+`chunk_embeddings` is written via plain JdbcTemplate (see the pgvector entry above — no Hibernate
+mapping for the `vector` type) on the same connection/transaction. Without the explicit flush, the
+raw JDBC insert ran before Hibernate had actually sent its pending chunk INSERTs to Postgres, and
+the FK from `chunk_embeddings.chunk_id` to `document_chunks.id` failed
+(`insert or update ... violates foreign key constraint`) even though the code that "created" the
+chunk had already run.
+
+**What it costs:** Nothing — one extra `flush()` call. Worth remembering any time JPA-managed
+writes and raw-JDBC writes touch the same rows within one transaction: the ordering that looks
+correct in the Java source isn't necessarily the ordering that reaches the database.

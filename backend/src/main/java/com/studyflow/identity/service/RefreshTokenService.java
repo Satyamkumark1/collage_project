@@ -1,10 +1,8 @@
 package com.studyflow.identity.service;
 
+import com.studyflow.common.hash.Sha256;
 import com.studyflow.identity.domain.RefreshToken;
 import com.studyflow.identity.repo.RefreshTokenRepository;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
@@ -76,16 +74,6 @@ public class RefreshTokenService {
     }
 
     public static String hash(String raw) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hashed = digest.digest(raw.getBytes(StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder(hashed.length * 2);
-            for (byte b : hashed) {
-                sb.append(String.format("%02x", b));
-            }
-            return sb.toString();
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException(impossible);
-        }
+        return Sha256.hex(raw);
     }
 }

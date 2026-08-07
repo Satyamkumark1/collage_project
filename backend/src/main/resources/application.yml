@@ -40,6 +40,11 @@ studyflow:
   quota:
     uploads-per-month: 100
     ai-jobs-per-month: 60
+  ai:
+    voyage:
+      api-key: ${VOYAGE_API_KEY}
+      base-url: https://api.voyageai.com/v1
+      model: voyage-4-lite
 
 management:
   endpoints:

@@ -2,6 +2,7 @@ package com.studyflow.library.service;
 
 import com.studyflow.common.error.ApiException;
 import com.studyflow.common.error.ErrorCode;
+import com.studyflow.common.hash.Sha256;
 import com.studyflow.common.id.UuidV7;
 import com.studyflow.common.quota.QuotaService;
 import com.studyflow.common.quota.UsageMetric;
@@ -15,8 +16,6 @@ import java.io.IOException;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
@@ -172,16 +171,6 @@ public class DocumentUploadService {
     }
 
     private String sha256Hex(byte[] content) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hashed = digest.digest(content);
-            StringBuilder sb = new StringBuilder(hashed.length * 2);
-            for (byte b : hashed) {
-                sb.append(String.format("%02x", b));
-            }
-            return sb.toString();
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException(impossible);
-        }
+        return Sha256.hex(content);
     }
 }

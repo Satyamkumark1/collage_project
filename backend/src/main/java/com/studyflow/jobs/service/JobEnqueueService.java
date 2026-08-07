@@ -1,15 +1,13 @@
 package com.studyflow.jobs.service;
 
 import com.studyflow.common.error.ErrorCode;
+import com.studyflow.common.hash.Sha256;
 import com.studyflow.common.quota.QuotaService;
 import com.studyflow.common.quota.UsageMetric;
 import com.studyflow.jobs.domain.AiJob;
 import com.studyflow.jobs.domain.JobStatus;
 import com.studyflow.jobs.domain.TaskType;
 import com.studyflow.jobs.repo.AiJobRepository;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
@@ -57,16 +55,6 @@ public class JobEnqueueService {
     }
 
     public static String fingerprint(String... parts) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hashed = digest.digest(String.join("|", parts).getBytes(StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder(hashed.length * 2);
-            for (byte b : hashed) {
-                sb.append(String.format("%02x", b));
-            }
-            return sb.toString();
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException(impossible);
-        }
+        return Sha256.hex(String.join("|", parts));
     }
 }
