@@ -1,0 +1,21 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Backend (Maven)
+backend/target/
+
+# Frontend (Node/Vite)
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Local storage root used by LocalDiskStorageProvider
+storage-local/
