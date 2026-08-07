@@ -32,3 +32,10 @@ studyflow:
   quota:
     uploads-per-month: 100
     ai-jobs-per-month: 60
+  jobs:
+    # Background polling would race against tests that construct their own JobDispatcher with a
+    # fake handler and call pollOnce() directly — see JobDispatcherIntegrationTest.
+    dispatcher:
+      enabled: false
+    sweeper:
+      enabled: false
