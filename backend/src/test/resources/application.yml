@@ -12,6 +12,10 @@ spring:
   jackson:
     deserialization:
       fail-on-unknown-properties: true
+  servlet:
+    multipart:
+      max-file-size: 26MB
+      max-request-size: 27MB
 
 studyflow:
   jwt:

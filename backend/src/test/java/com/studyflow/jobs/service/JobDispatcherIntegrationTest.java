@@ -10,6 +10,7 @@ import com.studyflow.jobs.domain.TaskType;
 import com.studyflow.jobs.domain.TransientJobException;
 import com.studyflow.jobs.repo.AiJobClaimDao;
 import com.studyflow.jobs.repo.AiJobRepository;
+import com.studyflow.support.DatabaseCleanerExtension;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -22,10 +23,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest
+@ExtendWith(DatabaseCleanerExtension.class)
 class JobDispatcherIntegrationTest {
 
     @Autowired

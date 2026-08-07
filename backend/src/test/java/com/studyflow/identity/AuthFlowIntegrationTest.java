@@ -7,7 +7,9 @@ import com.studyflow.identity.dto.LoginRequest;
 import com.studyflow.identity.dto.MeResponse;
 import com.studyflow.identity.dto.RegisterRequest;
 import com.studyflow.identity.dto.RegisterResponse;
+import com.studyflow.support.DatabaseCleanerExtension;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.resttestclient.TestRestTemplate;
@@ -20,6 +22,7 @@ import org.springframework.http.ResponseEntity;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
+@ExtendWith(DatabaseCleanerExtension.class)
 class AuthFlowIntegrationTest {
 
     @Autowired

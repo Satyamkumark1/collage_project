@@ -14,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
@@ -52,6 +53,15 @@ public class GlobalExceptionHandler {
                 "Request body failed validation", request);
         problem.setProperty("errors", errors);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problem);
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ProblemDetail> handleMaxUploadSize(MaxUploadSizeExceededException ex,
+            HttpServletRequest request) {
+        ProblemDetail problem = baseProblem(ErrorCode.FILE_TOO_LARGE.status(), ErrorCode.FILE_TOO_LARGE.name(),
+                "File exceeds the configured size limit", request);
+        return ResponseEntity.status(ErrorCode.FILE_TOO_LARGE.status()).contentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .body(problem);
     }
 
