@@ -19,7 +19,10 @@ spring:
 
 studyflow:
   jwt:
-    secret: 4AXSrXOAzhRxoSu4JhoyVeaiHKskpbxLXqmmsTm1/fxskyqxD2z7LW2YEkn5OIzI70angw8A/PPqubwQnXvUxA==
+    # Same env var as the main config (see application.yml, JwtKeyConfig) — a real-looking key
+    # hardcoded here would be a checked-in secret even though it's test-only. Tests must be run
+    # with the .env sourced, same as the app itself (see CLAUDE.md's verification loop).
+    secret: ${JWT_SECRET}
     access-token-ttl-minutes: 15
     issuer: studyflow-ai
     audience: studyflow-ai-clients

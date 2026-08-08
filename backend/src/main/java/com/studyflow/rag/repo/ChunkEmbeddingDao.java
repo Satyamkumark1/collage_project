@@ -29,9 +29,10 @@ public class ChunkEmbeddingDao {
                 chunkId, documentId, ownerId, new PGvector(embedding), model, modelVersion);
     }
 
-    public int countByDocumentId(UUID documentId) {
-        Integer count = jdbcTemplate.queryForObject("SELECT count(*) FROM chunk_embeddings WHERE document_id = ?",
-                Integer.class, documentId);
+    public int countByDocumentId(UUID documentId, UUID ownerId) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM chunk_embeddings WHERE document_id = ? AND owner_id = ?", Integer.class,
+                documentId, ownerId);
         return count == null ? 0 : count;
     }
 }

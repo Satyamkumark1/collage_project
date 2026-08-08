@@ -253,7 +253,13 @@ the async flow just to hide this would be scope creep ahead of a feature (real e
 that isn't built yet.
 
 **What it costs:** An attacker can enumerate registered emails via the register endpoint (not via
-login). Acceptable for a dev build with no real user base; revisit alongside real email delivery.
+login). **This is explicitly not production-suitable** — acceptable only for this dev build with
+no real user base. The eventual fix, once real email delivery exists, is to make
+`POST /auth/register` return a uniform "check your email" acceptance response regardless of
+whether the address is already registered, and move account-creation-or-no-op behind the
+verification-link click instead of the synchronous 201 this phase returns — not a smaller patch
+on top of the current synchronous flow. Do not ship the current 409 behavior against real user
+data.
 
 ---
 
@@ -290,3 +296,33 @@ chunk had already run.
 **What it costs:** Nothing — one extra `flush()` call. Worth remembering any time JPA-managed
 writes and raw-JDBC writes touch the same rows within one transaction: the ordering that looks
 correct in the Java source isn't necessarily the ordering that reaches the database.
+
+---
+
+## 2026-08-08 — Refresh/logout CSRF: interim mitigation, not the deferred double-submit token
+
+**What changed:** `SecurityConfig`'s cookie defaults (`application.yml`) flipped to
+`secure: true` / `same-site: Strict` as the base (prod-appropriate) config. Local dev now runs
+with a `local` Spring profile (`application-local.yml`, activated by `run-dev.sh` via
+`-Dspring-boot.run.profiles=local`) overriding to `secure: false` / `same-site: Lax`, since
+`http://localhost` can't satisfy `Secure`. Separately, `POST /auth/refresh` and `POST
+/auth/logout` (`AuthController`) now reject requests missing a client-supplied `X-Request-Id`
+header with `400 VALIDATION_FAILED`.
+
+**Why:** These two endpoints are cookie-authenticated and CSRF-exempt in `SecurityConfig` (no
+Bearer token in play), which was previously only mitigated by documenting the double-submit
+token as a deferred TODO with no interim protection at all. `SameSite=Strict` alone is a
+same-site-only cookie (frontend and API are expected to share a registrable domain, e.g.
+`app.studyflow.ai` / `api.studyflow.ai`, so this doesn't break the CORS-configured
+credentialed-fetch flow between them) but doesn't fully close the gap on its own. Requiring a
+custom header is a real, if lightweight, second layer: a cross-site `<form>`/`<img>`/link
+submission cannot set arbitrary headers, only same-origin (or CORS-permitted) `fetch`/XHR can —
+so this blocks naive CSRF without needing a token to be threaded through frontend state yet.
+
+**What it costs:** This is not the double-submit token the original spec calls for — a
+same-site attacker able to run JS on an allowed CORS origin (not just a cross-site page) could
+still set the header. The real fix (a per-session anti-CSRF token, verified server-side against
+the cookie) is still deferred; revisit alongside real session/CSRF-token infrastructure. If a
+future deployment puts the frontend and API on genuinely different registrable domains,
+`SameSite=Strict` would need revisiting too (would break the cookie entirely, not just weaken
+CSRF protection).

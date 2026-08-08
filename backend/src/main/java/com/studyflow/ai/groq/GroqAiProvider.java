@@ -27,6 +27,10 @@ public class GroqAiProvider implements AiProvider {
 
     private static final Pattern THINK_BLOCK = Pattern.compile("<think>.*?</think>",
             Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
+    // Covers a response truncated (e.g. by max_tokens) mid-reasoning: a <think> with no
+    // matching close tag left behind by the pattern above.
+    private static final Pattern UNTERMINATED_THINK_BLOCK = Pattern.compile("<think>.*",
+            Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
 
     private final RestClient restClient;
 
@@ -109,6 +113,8 @@ public class GroqAiProvider implements AiProvider {
         if (content == null) {
             return "";
         }
-        return THINK_BLOCK.matcher(content).replaceAll("").strip();
+        String withoutCompleteBlocks = THINK_BLOCK.matcher(content).replaceAll("");
+        String withoutTrailingOpenBlock = UNTERMINATED_THINK_BLOCK.matcher(withoutCompleteBlocks).replaceFirst("");
+        return withoutTrailingOpenBlock.strip();
     }
 }

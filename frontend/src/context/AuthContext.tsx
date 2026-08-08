@@ -7,7 +7,7 @@ import {
   register as apiRegister,
   type MeResponse,
 } from "../api/auth";
-import { setAccessToken } from "../api/client";
+import { setAccessToken, setOnSessionExpired } from "../api/client";
 
 type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 
@@ -30,6 +30,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(meResponse);
     setStatus("authenticated");
   }, []);
+
+  const clearSession = useCallback(() => {
+    setAccessToken(null);
+    setUser(null);
+    setStatus("unauthenticated");
+  }, []);
+
+  useEffect(() => {
+    // A 401 whose silent refresh also failed means the session is genuinely gone (expired or
+    // revoked refresh cookie) — reset state immediately rather than leaving stale
+    // "authenticated" status around until something else happens to notice.
+    setOnSessionExpired(clearSession);
+    return () => setOnSessionExpired(null);
+  }, [clearSession]);
 
   useEffect(() => {
     // The access token is memory-only — on a fresh page load, silently try the refresh
@@ -68,10 +82,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     await apiLogout().catch(() => undefined);
-    setAccessToken(null);
-    setUser(null);
-    setStatus("unauthenticated");
-  }, []);
+    clearSession();
+  }, [clearSession]);
 
   return <AuthContext.Provider value={{ user, status, login, register, logout }}>{children}</AuthContext.Provider>;
 }

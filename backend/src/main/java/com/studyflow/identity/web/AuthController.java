@@ -2,6 +2,7 @@ package com.studyflow.identity.web;
 
 import com.studyflow.common.error.ApiException;
 import com.studyflow.common.error.ErrorCode;
+import com.studyflow.common.web.RequestIdFilter;
 import com.studyflow.identity.config.CookieProperties;
 import com.studyflow.identity.domain.User;
 import com.studyflow.identity.dto.AccessTokenResponse;
@@ -20,6 +21,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -59,7 +61,9 @@ public class AuthController {
     @PostMapping("/refresh")
     public ResponseEntity<AccessTokenResponse> refresh(
             @CookieValue(name = REFRESH_COOKIE_NAME, required = false) String refreshCookie,
+            @RequestHeader(name = RequestIdFilter.HEADER, required = false) String requestId,
             HttpServletRequest httpRequest) {
+        requireClientSuppliedRequestId(requestId);
         if (refreshCookie == null) {
             throw new ApiException(ErrorCode.AUTH_TOKEN_EXPIRED, "No refresh cookie present");
         }
@@ -72,7 +76,9 @@ public class AuthController {
 
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(
-            @CookieValue(name = REFRESH_COOKIE_NAME, required = false) String refreshCookie) {
+            @CookieValue(name = REFRESH_COOKIE_NAME, required = false) String refreshCookie,
+            @RequestHeader(name = RequestIdFilter.HEADER, required = false) String requestId) {
+        requireClientSuppliedRequestId(requestId);
         if (refreshCookie != null) {
             authService.logout(refreshCookie);
         }
@@ -94,6 +100,16 @@ public class AuthController {
                 .path(REFRESH_COOKIE_PATH)
                 .maxAge(Duration.ofDays(cookieProperties.getRefreshTtlDays()))
                 .build();
+    }
+
+    // Interim CSRF mitigation for these two cookie-authenticated, otherwise-unauthenticated
+    // endpoints (double-submit token is deferred — see docs/DECISIONS.md): a cross-site
+    // form/image/link submission cannot set a custom header, so requiring one here blocks naive
+    // CSRF without needing a token to be threaded through the frontend yet.
+    private void requireClientSuppliedRequestId(String requestId) {
+        if (requestId == null || requestId.isBlank()) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED, "X-Request-Id header is required for this endpoint");
+        }
     }
 
     private String hash(String value) {

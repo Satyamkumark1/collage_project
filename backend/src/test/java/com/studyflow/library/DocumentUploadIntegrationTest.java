@@ -11,12 +11,14 @@ import com.studyflow.support.DatabaseCleanerExtension;
 import java.nio.charset.StandardCharsets;
 import java.time.Year;
 import java.time.ZoneId;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -84,10 +86,13 @@ class DocumentUploadIntegrationTest {
         HttpHeaders headers = bearer(accessToken);
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
 
-        ResponseEntity<String> response = restTemplate.postForEntity("/api/v1/documents",
-                new HttpEntity<>(body, headers), String.class);
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange("/api/v1/documents",
+                org.springframework.http.HttpMethod.POST, new HttpEntity<>(body, headers),
+                new ParameterizedTypeReference<Map<String, Object>>() {
+                });
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNSUPPORTED_MEDIA_TYPE);
-        assertThat(response.getBody()).contains("FILE_TYPE_UNSUPPORTED");
+        assertThat(response.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_PROBLEM_JSON);
+        assertThat(response.getBody()).containsEntry("code", "FILE_TYPE_UNSUPPORTED");
     }
 
     @Test
@@ -95,12 +100,14 @@ class DocumentUploadIntegrationTest {
         int currentYear = Year.now(ZoneId.of("Asia/Kolkata")).getValue();
         String accessToken = registerAndLogin((short) (currentYear - 15));
 
-        ResponseEntity<String> response = restTemplate.exchange("/api/v1/documents",
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange("/api/v1/documents",
                 org.springframework.http.HttpMethod.POST, multipartEntity(accessToken, MINIMAL_PDF, "notes.pdf"),
-                String.class);
+                new ParameterizedTypeReference<Map<String, Object>>() {
+                });
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
-        assertThat(response.getBody()).contains("AUTH_GUARDIAN_CONSENT_REQUIRED");
+        assertThat(response.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_PROBLEM_JSON);
+        assertThat(response.getBody()).containsEntry("code", "AUTH_GUARDIAN_CONSENT_REQUIRED");
     }
 
     private ResponseEntity<UploadResponse> uploadPdf(String accessToken, byte[] content, String filename,

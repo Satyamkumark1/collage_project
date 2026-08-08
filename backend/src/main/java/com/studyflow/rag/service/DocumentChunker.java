@@ -82,7 +82,7 @@ public class DocumentChunker {
         List<Line> current = new ArrayList<>();
         int currentTokens = 0;
 
-        for (Line line : section.lines()) {
+        for (Line line : splitOversizedLines(section.lines())) {
             int lineTokens = approxTokens(line.text());
             if (currentTokens + lineTokens > MAX_TOKENS && !current.isEmpty()) {
                 result.add(buildChunk(current, section.heading()));
@@ -100,17 +100,43 @@ public class DocumentChunker {
 
         if (!current.isEmpty()) {
             ChunkDraft last = buildChunk(current, section.heading());
-            if (last.tokenCount() < MIN_CHUNK_TOKENS && !result.isEmpty()) {
+            ChunkDraft previous = result.isEmpty() ? null : result.get(result.size() - 1);
+            if (last.tokenCount() < MIN_CHUNK_TOKENS && previous != null
+                    && previous.tokenCount() + last.tokenCount() <= MAX_TOKENS) {
                 // Too small on its own; fold into the previous chunk rather than discard it
                 // outright (spec: discard <80 tokens unless heading+definition — the previous
                 // chunk already carries the heading, so merging keeps that content reachable).
-                ChunkDraft previous = result.remove(result.size() - 1);
+                // Only when the merge itself still respects the hard token cap — otherwise a
+                // small trailing chunk is better than a chunk that blows past MAX_TOKENS.
+                result.remove(result.size() - 1);
                 result.add(mergeChunks(previous, last));
             } else {
                 result.add(last);
             }
         }
         return result;
+    }
+
+    /**
+     * A single unbroken line longer than MAX_TOKENS (e.g. one giant paragraph with no newlines)
+     * would otherwise be added to a chunk whole, blowing past the hard cap the chunker exists to
+     * enforce — split it into MAX_TOKENS-sized pieces first so nothing downstream ever sees a
+     * chunk over the limit.
+     */
+    private List<Line> splitOversizedLines(List<Line> lines) {
+        int maxChars = (int) (MAX_TOKENS * CHARS_PER_TOKEN);
+        List<Line> split = new ArrayList<>(lines.size());
+        for (Line line : lines) {
+            String text = line.text();
+            if (text.length() <= maxChars) {
+                split.add(line);
+                continue;
+            }
+            for (int i = 0; i < text.length(); i += maxChars) {
+                split.add(new Line(text.substring(i, Math.min(i + maxChars, text.length())), line.pageNumber()));
+            }
+        }
+        return split;
     }
 
     private List<Line> overlapTail(List<Line> lines) {

@@ -5,6 +5,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.Instant;
 import java.util.UUID;
 import org.hibernate.annotations.CreationTimestamp;
@@ -44,6 +45,14 @@ public class RefreshToken {
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
+
+    // Two concurrent /auth/refresh calls presenting the same still-live token could otherwise
+    // both read this row unrevoked and both successfully rotate it, minting two live "next"
+    // tokens from one parent — optimistic locking makes the second writer's save() fail instead
+    // (see RefreshTokenService.rotate).
+    @Version
+    @Column(name = "version", nullable = false)
+    private long version;
 
     protected RefreshToken() {
         // JPA

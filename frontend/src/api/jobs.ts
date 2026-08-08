@@ -8,7 +8,6 @@ export interface JobResponse {
   progressStage: string | null;
   resultRef: Record<string, unknown> | null;
   errorCode: string | null;
-  errorMessage: string | null;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;

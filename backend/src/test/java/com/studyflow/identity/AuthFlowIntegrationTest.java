@@ -60,6 +60,7 @@ class AuthFlowIntegrationTest {
 
         HttpHeaders refreshHeaders = new HttpHeaders();
         refreshHeaders.add(HttpHeaders.COOKIE, cookiePair(setCookie));
+        refreshHeaders.add("X-Request-Id", "test-" + System.nanoTime());
         ResponseEntity<AccessTokenResponse> refreshResponse = restTemplate.exchange("/api/v1/auth/refresh",
                 HttpMethod.POST, new HttpEntity<>(refreshHeaders), AccessTokenResponse.class);
         assertThat(refreshResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -77,6 +78,7 @@ class AuthFlowIntegrationTest {
         // The rotated (newest) cookie must also now be dead, since reuse revokes the family.
         HttpHeaders rotatedHeaders = new HttpHeaders();
         rotatedHeaders.add(HttpHeaders.COOKIE, cookiePair(rotatedCookie));
+        rotatedHeaders.add("X-Request-Id", "test-" + System.nanoTime());
         ResponseEntity<String> deadResponse = restTemplate.exchange("/api/v1/auth/refresh", HttpMethod.POST,
                 new HttpEntity<>(rotatedHeaders), String.class);
         assertThat(deadResponse.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
@@ -94,6 +96,7 @@ class AuthFlowIntegrationTest {
 
         HttpHeaders cookieHeaders = new HttpHeaders();
         cookieHeaders.add(HttpHeaders.COOKIE, cookiePair(setCookie));
+        cookieHeaders.add("X-Request-Id", "test-" + System.nanoTime());
 
         // logout must work on the cookie alone — no Bearer token required, same as refresh.
         ResponseEntity<Void> logoutResponse = restTemplate.exchange("/api/v1/auth/logout", HttpMethod.POST,

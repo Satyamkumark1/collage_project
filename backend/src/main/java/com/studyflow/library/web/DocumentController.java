@@ -3,8 +3,8 @@ package com.studyflow.library.web;
 import com.studyflow.common.error.ApiException;
 import com.studyflow.common.error.ErrorCode;
 import com.studyflow.identity.domain.User;
-import com.studyflow.identity.repo.UserRepository;
 import com.studyflow.identity.service.DpdpGuard;
+import com.studyflow.identity.service.IdentityService;
 import com.studyflow.library.domain.Document;
 import com.studyflow.library.dto.DocumentResponse;
 import com.studyflow.library.dto.UploadResponse;
@@ -36,14 +36,14 @@ public class DocumentController {
 
     private final DocumentUploadService uploadService;
     private final DocumentRepository documentRepository;
-    private final UserRepository userRepository;
+    private final IdentityService identityService;
     private final DpdpGuard dpdpGuard;
 
     public DocumentController(DocumentUploadService uploadService, DocumentRepository documentRepository,
-            UserRepository userRepository, DpdpGuard dpdpGuard) {
+            IdentityService identityService, DpdpGuard dpdpGuard) {
         this.uploadService = uploadService;
         this.documentRepository = documentRepository;
-        this.userRepository = userRepository;
+        this.identityService = identityService;
         this.dpdpGuard = dpdpGuard;
     }
 
@@ -75,8 +75,11 @@ public class DocumentController {
     @GetMapping
     public DocumentListResponse list(Authentication authentication, @RequestParam(required = false) Integer limit,
             @RequestParam(required = false) UUID cursor) {
+        if (limit != null && (limit < 1 || limit > MAX_LIMIT)) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED, "limit must be between 1 and " + MAX_LIMIT);
+        }
         UUID ownerId = UUID.fromString(authentication.getName());
-        int effectiveLimit = Math.min(limit == null ? DEFAULT_LIMIT : limit, MAX_LIMIT);
+        int effectiveLimit = limit == null ? DEFAULT_LIMIT : limit;
         Limit limitObj = Limit.of(effectiveLimit + 1);
         List<Document> page = cursor == null
                 ? documentRepository.findByOwnerIdAndDeletedAtIsNullOrderByIdDesc(ownerId, limitObj)
@@ -102,7 +105,6 @@ public class DocumentController {
     }
 
     private User currentUser(UUID userId) {
-        return userRepository.findById(userId)
-                .orElseThrow(() -> new ApiException(ErrorCode.AUTH_TOKEN_EXPIRED, "User no longer exists"));
+        return identityService.requireActiveUser(userId);
     }
 }

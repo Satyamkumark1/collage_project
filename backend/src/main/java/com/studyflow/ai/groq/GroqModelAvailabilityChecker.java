@@ -1,5 +1,6 @@
 package com.studyflow.ai.groq;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -8,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -26,7 +28,16 @@ public class GroqModelAvailabilityChecker implements ApplicationRunner {
     public GroqModelAvailabilityChecker(@Value("${studyflow.ai.groq.api-key}") String apiKey,
             @Value("${studyflow.ai.groq.base-url}") String baseUrl,
             @Value("${studyflow.ai.groq.models.summary}") String summaryModel) {
-        this.restClient = RestClient.builder().baseUrl(baseUrl).defaultHeader("Authorization", "Bearer " + apiKey)
+        // Non-fatal by design (see class javadoc), but an unbounded RestTemplate default still
+        // blocks the ApplicationRunner — and therefore Boot startup — indefinitely if Groq never
+        // responds. Bound it the same way GroqAiProvider bounds its own client.
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(Duration.ofSeconds(5));
+        requestFactory.setReadTimeout(Duration.ofSeconds(10));
+        this.restClient = RestClient.builder()
+                .baseUrl(baseUrl)
+                .requestFactory(requestFactory)
+                .defaultHeader("Authorization", "Bearer " + apiKey)
                 .build();
         this.summaryModel = summaryModel;
     }

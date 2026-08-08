@@ -8,8 +8,8 @@ import com.studyflow.ai.prompt.PromptRegistry;
 import com.studyflow.ai.service.AiCallLogger;
 import com.studyflow.common.error.ApiException;
 import com.studyflow.common.error.ErrorCode;
-import com.studyflow.rag.domain.DocumentChunk;
-import com.studyflow.rag.repo.DocumentChunkRepository;
+import com.studyflow.rag.service.ChunkQueryService;
+import com.studyflow.rag.service.ChunkQueryService.ChunkView;
 import com.studyflow.study.domain.Summary;
 import com.studyflow.study.repo.SummaryRepository;
 import java.util.ArrayList;
@@ -20,7 +20,6 @@ import java.util.Set;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -44,32 +43,38 @@ public class SummaryGenerationService {
     private final AiProvider aiProvider;
     private final PromptRegistry promptRegistry;
     private final AiCallLogger aiCallLogger;
-    private final DocumentChunkRepository chunkRepository;
+    private final ChunkQueryService chunkQueryService;
     private final SummaryRepository summaryRepository;
     private final ObjectMapper objectMapper;
     private final String summaryModel;
 
     public SummaryGenerationService(AiProvider aiProvider, PromptRegistry promptRegistry, AiCallLogger aiCallLogger,
-            DocumentChunkRepository chunkRepository, SummaryRepository summaryRepository, ObjectMapper objectMapper,
+            ChunkQueryService chunkQueryService, SummaryRepository summaryRepository, ObjectMapper objectMapper,
             @Value("${studyflow.ai.groq.models.summary}") String summaryModel) {
         this.aiProvider = aiProvider;
         this.promptRegistry = promptRegistry;
         this.aiCallLogger = aiCallLogger;
-        this.chunkRepository = chunkRepository;
+        this.chunkQueryService = chunkQueryService;
         this.summaryRepository = summaryRepository;
         this.objectMapper = objectMapper;
         this.summaryModel = summaryModel;
     }
 
-    @Transactional
+    // Deliberately not @Transactional: chunkQueryService's read and summaryRepository.save
+    // below each already run in their own short transaction (see ChunkQueryServiceImpl,
+    // SimpleJpaRepository), and aiCallLogger.log runs in its own REQUIRES_NEW transaction
+    // regardless of any ambient one. Wrapping this method would hold a DB transaction open
+    // across the Groq calls in between (summarizeChunks/mapReduce can take 20-180s) for no
+    // benefit — there's no multi-statement atomicity requirement spanning the read and the
+    // final save.
     public Summary generate(UUID documentId, UUID ownerId, UUID jobId) {
-        List<DocumentChunk> chunks = chunkRepository.findByDocumentIdOrderByChunkIndexAsc(documentId);
+        List<ChunkView> chunks = chunkQueryService.findOrderedChunks(documentId, ownerId);
         if (chunks.isEmpty()) {
             throw new ApiException(ErrorCode.AI_INSUFFICIENT_CONTEXT, "Document has no chunks to summarize");
         }
-        Set<String> validChunkIds = chunks.stream().map(c -> c.getId().toString()).collect(java.util.stream.Collectors.toSet());
+        Set<String> validChunkIds = chunks.stream().map(c -> c.id().toString()).collect(java.util.stream.Collectors.toSet());
 
-        int totalTokens = chunks.stream().mapToInt(DocumentChunk::getTokenCount).sum();
+        int totalTokens = chunks.stream().mapToInt(ChunkView::tokenCount).sum();
         GroundedSummary result = totalTokens <= MAX_INPUT_TOKENS
                 ? summarizeChunks(chunks, validChunkIds, ownerId, jobId)
                 : mapReduce(chunks, validChunkIds, ownerId, jobId);
@@ -90,12 +95,12 @@ public class SummaryGenerationService {
         }
     }
 
-    private GroundedSummary mapReduce(List<DocumentChunk> chunks, Set<String> validChunkIds, UUID ownerId,
+    private GroundedSummary mapReduce(List<ChunkView> chunks, Set<String> validChunkIds, UUID ownerId,
             UUID jobId) {
-        List<List<DocumentChunk>> groups = partitionByTokenBudget(chunks, MAX_INPUT_TOKENS);
+        List<List<ChunkView>> groups = partitionByTokenBudget(chunks, MAX_INPUT_TOKENS);
         List<String> partials = new ArrayList<>();
         Set<String> unionCitations = new LinkedHashSet<>();
-        for (List<DocumentChunk> group : groups) {
+        for (List<ChunkView> group : groups) {
             GroundedSummary partial = summarizeChunks(group, validChunkIds, ownerId, jobId);
             partials.add(partial.summary());
             unionCitations.addAll(partial.citedChunkIds());
@@ -104,18 +109,18 @@ public class SummaryGenerationService {
         return new GroundedSummary(combined, unionCitations);
     }
 
-    private List<List<DocumentChunk>> partitionByTokenBudget(List<DocumentChunk> chunks, int budget) {
-        List<List<DocumentChunk>> groups = new ArrayList<>();
-        List<DocumentChunk> current = new ArrayList<>();
+    private List<List<ChunkView>> partitionByTokenBudget(List<ChunkView> chunks, int budget) {
+        List<List<ChunkView>> groups = new ArrayList<>();
+        List<ChunkView> current = new ArrayList<>();
         int currentTokens = 0;
-        for (DocumentChunk chunk : chunks) {
-            if (currentTokens + chunk.getTokenCount() > budget && !current.isEmpty()) {
+        for (ChunkView chunk : chunks) {
+            if (currentTokens + chunk.tokenCount() > budget && !current.isEmpty()) {
                 groups.add(current);
                 current = new ArrayList<>();
                 currentTokens = 0;
             }
             current.add(chunk);
-            currentTokens += chunk.getTokenCount();
+            currentTokens += chunk.tokenCount();
         }
         if (!current.isEmpty()) {
             groups.add(current);
@@ -123,7 +128,7 @@ public class SummaryGenerationService {
         return groups;
     }
 
-    private GroundedSummary summarizeChunks(List<DocumentChunk> chunks, Set<String> validChunkIds, UUID ownerId,
+    private GroundedSummary summarizeChunks(List<ChunkView> chunks, Set<String> validChunkIds, UUID ownerId,
             UUID jobId) {
         String systemPrompt = promptRegistry.load(PURPOSE, PROMPT_VERSION).content();
         String userContent = buildChunksMessage(chunks);
@@ -186,11 +191,11 @@ public class SummaryGenerationService {
                 result.tokensOut(), (int) result.latencyMs(), result.finishReason(), outcome, attemptNo);
     }
 
-    private String buildChunksMessage(List<DocumentChunk> chunks) {
+    private String buildChunksMessage(List<ChunkView> chunks) {
         StringBuilder sb = new StringBuilder("<<<DOCUMENT>>>\n");
-        for (DocumentChunk chunk : chunks) {
-            sb.append("[chunk: ").append(chunk.getId()).append("]\n");
-            sb.append(chunk.getContent()).append("\n\n");
+        for (ChunkView chunk : chunks) {
+            sb.append("[chunk: ").append(chunk.id()).append("]\n");
+            sb.append(chunk.content()).append("\n\n");
         }
         sb.append("<<<END_DOCUMENT>>>");
         return sb.toString();
@@ -221,7 +226,8 @@ public class SummaryGenerationService {
         String summary = summaryNode.asString();
         int wordCount = summary.strip().split("\\s+").length;
         if (wordCount < MIN_WORDS || wordCount > MAX_WORDS) {
-            violations.add("'summary' must be roughly 60-100 words (got " + wordCount + ")");
+            violations.add("'summary' must be roughly " + MIN_WORDS + "-" + MAX_WORDS + " words (got " + wordCount
+                    + ")");
         }
 
         Set<String> citedIds = new LinkedHashSet<>();

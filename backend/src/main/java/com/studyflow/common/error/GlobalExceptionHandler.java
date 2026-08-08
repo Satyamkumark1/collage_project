@@ -11,9 +11,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -52,6 +56,44 @@ public class GlobalExceptionHandler {
         ProblemDetail problem = baseProblem(HttpStatus.BAD_REQUEST, ErrorCode.VALIDATION_FAILED.name(),
                 "Request body failed validation", request);
         problem.setProperty("errors", errors);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problem);
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ProblemDetail> handleMalformedBody(HttpMessageNotReadableException ex,
+            HttpServletRequest request) {
+        ProblemDetail problem = baseProblem(HttpStatus.BAD_REQUEST, ErrorCode.VALIDATION_FAILED.name(),
+                "Request body could not be parsed", request);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problem);
+    }
+
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<ProblemDetail> handleMethodValidation(HandlerMethodValidationException ex,
+            HttpServletRequest request) {
+        List<String> errors = ex.getAllErrors().stream().map(err -> err.getDefaultMessage()).toList();
+        ProblemDetail problem = baseProblem(HttpStatus.BAD_REQUEST, ErrorCode.VALIDATION_FAILED.name(),
+                "Request parameters failed validation", request);
+        problem.setProperty("errors", errors);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problem);
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ProblemDetail> handleMissingParameter(MissingServletRequestParameterException ex,
+            HttpServletRequest request) {
+        ProblemDetail problem = baseProblem(HttpStatus.BAD_REQUEST, ErrorCode.VALIDATION_FAILED.name(),
+                "Missing required parameter: " + ex.getParameterName(), request);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problem);
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ProblemDetail> handleTypeMismatch(MethodArgumentTypeMismatchException ex,
+            HttpServletRequest request) {
+        ProblemDetail problem = baseProblem(HttpStatus.BAD_REQUEST, ErrorCode.VALIDATION_FAILED.name(),
+                "Parameter '" + ex.getName() + "' has an invalid value", request);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .body(problem);
     }

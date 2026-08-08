@@ -45,8 +45,11 @@ public class JobController {
     @GetMapping
     public JobListResponse list(Authentication authentication, @RequestParam(required = false) Integer limit,
             @RequestParam(required = false) UUID cursor) {
+        if (limit != null && (limit < 1 || limit > MAX_LIMIT)) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED, "limit must be between 1 and " + MAX_LIMIT);
+        }
         UUID ownerId = UUID.fromString(authentication.getName());
-        int effectiveLimit = Math.min(limit == null ? DEFAULT_LIMIT : limit, MAX_LIMIT);
+        int effectiveLimit = limit == null ? DEFAULT_LIMIT : limit;
         Limit limitObj = Limit.of(effectiveLimit + 1);
         List<AiJob> page = cursor == null
                 ? repository.findByOwnerIdOrderByIdDesc(ownerId, limitObj)

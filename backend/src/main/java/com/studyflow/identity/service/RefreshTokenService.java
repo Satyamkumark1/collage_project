@@ -1,5 +1,7 @@
 package com.studyflow.identity.service;
 
+import com.studyflow.common.error.ApiException;
+import com.studyflow.common.error.ErrorCode;
 import com.studyflow.common.hash.Sha256;
 import com.studyflow.identity.domain.RefreshToken;
 import com.studyflow.identity.repo.RefreshTokenRepository;
@@ -10,6 +12,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,11 +40,25 @@ public class RefreshTokenService {
         return issue(userId, UUID.randomUUID(), userAgentHash, ipHash);
     }
 
-    @Transactional
+    // noRollbackFor mirrors AuthService.refresh's own reuse-detection branch: the catch block
+    // below deliberately persists a family revocation and then throws to reject the request —
+    // without this, rotate()'s own transaction interceptor would mark the shared transaction
+    // rollback-only on that throw and silently discard the revocation.
+    @Transactional(noRollbackFor = ApiException.class)
     public IssuedToken rotate(RefreshToken current, String userAgentHash, String ipHash) {
         IssuedToken next = issue(current.getUserId(), current.getFamilyId(), userAgentHash, ipHash);
         current.revoke(next.entity().getId());
-        repository.save(current);
+        try {
+            repository.saveAndFlush(current);
+        } catch (ObjectOptimisticLockingFailureException e) {
+            // Another request already rotated this exact token concurrently (read the same
+            // version, raced to write it) — without this check both would succeed and mint two
+            // live children from one parent. Revoke the whole family (which also catches the
+            // `next` token just issued above) and surface reuse detection instead of returning
+            // a second live session.
+            revokeFamily(current.getFamilyId(), current.getUserId());
+            throw new ApiException(ErrorCode.AUTH_REFRESH_REUSED, "Concurrent refresh detected; session revoked");
+        }
         return next;
     }
 
@@ -51,8 +68,8 @@ public class RefreshTokenService {
     }
 
     @Transactional
-    public void revokeFamily(UUID familyId) {
-        List<RefreshToken> active = repository.findByFamilyIdAndRevokedAtIsNull(familyId);
+    public void revokeFamily(UUID familyId, UUID userId) {
+        List<RefreshToken> active = repository.findByFamilyIdAndUserIdAndRevokedAtIsNull(familyId, userId);
         for (RefreshToken token : active) {
             token.revoke(null);
         }

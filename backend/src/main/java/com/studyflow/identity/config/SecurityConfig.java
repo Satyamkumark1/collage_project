@@ -18,8 +18,10 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 /**
  * Stateless bearer-token auth (see specs/04-identity-and-security.md). Only the cookie-based
- * refresh endpoint would need CSRF protection in production (double-submit token) — deferred,
- * see docs/DECISIONS.md; everything else is Bearer-authenticated and CSRF-exempt by design.
+ * refresh/logout endpoints need CSRF protection — everything else is Bearer-authenticated and
+ * CSRF-exempt by design. Full double-submit token is deferred; {@link
+ * com.studyflow.identity.web.AuthController} enforces an interim mitigation (required
+ * X-Request-Id header) on those two endpoints instead — see docs/DECISIONS.md.
  */
 @Configuration
 public class SecurityConfig {

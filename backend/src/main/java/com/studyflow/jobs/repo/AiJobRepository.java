@@ -29,8 +29,8 @@ public interface AiJobRepository extends JpaRepository<AiJob, UUID> {
 
     Optional<AiJob> findByOwnerIdAndIdempotencyKey(UUID ownerId, String idempotencyKey);
 
-    Optional<AiJob> findFirstByInputFingerprintAndStatusOrderByCreatedAtDesc(String inputFingerprint,
-            JobStatus status);
+    Optional<AiJob> findFirstByOwnerIdAndInputFingerprintAndStatusOrderByCreatedAtDesc(UUID ownerId,
+            String inputFingerprint, JobStatus status);
 
     List<AiJob> findByStatusAndHeartbeatAtBefore(JobStatus status, Instant threshold);
 

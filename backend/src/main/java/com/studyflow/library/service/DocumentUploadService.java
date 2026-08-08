@@ -22,6 +22,8 @@ import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
@@ -87,14 +89,15 @@ public class DocumentUploadService {
                 ErrorCode.QUOTA_UPLOADS_EXCEEDED);
 
         UUID documentId = UuidV7.generate();
-        String storageKey = "users/" + ownerId + "/" + documentId + "/" + safeFilename(file.getOriginalFilename());
-        String title = (titleOverride == null || titleOverride.isBlank()) ? file.getOriginalFilename()
-                : titleOverride;
+        String normalizedFilename = normalizeFilename(file.getOriginalFilename());
+        String storageKey = "users/" + ownerId + "/" + documentId + "/" + safeFilename(normalizedFilename);
+        String title = (titleOverride == null || titleOverride.isBlank()) ? normalizedFilename : titleOverride;
 
-        Document document = new Document(documentId, ownerId, title, file.getOriginalFilename(),
+        Document document = new Document(documentId, ownerId, title, normalizedFilename,
                 mimeTypeFor(fileType), fileType, content.length, sha256, storageKey,
                 storageProvider.providerName());
         storageProvider.store(content, storageKey);
+        registerStorageCleanupOnRollback(storageKey);
         documentRepository.save(document);
 
         String paramsJson = "{\"documentId\":\"" + documentId + "\"}";
@@ -150,12 +153,30 @@ public class DocumentUploadService {
         return dot < 0 ? "" : filename.substring(dot + 1).toLowerCase(Locale.ROOT);
     }
 
-    private String safeFilename(String original) {
-        if (original == null || original.isBlank()) {
-            return "upload";
-        }
-        String base = original.replaceAll("[\\\\/]", "_");
+    private String normalizeFilename(String original) {
+        return (original == null || original.isBlank()) ? "upload" : original;
+    }
+
+    private String safeFilename(String normalizedFilename) {
+        String base = normalizedFilename.replaceAll("[\\\\/]", "_");
         return base.replaceAll("[^a-zA-Z0-9._-]", "_");
+    }
+
+    /**
+     * storageProvider.store() writes bytes to disk outside the DB transaction that follows it —
+     * if that transaction later rolls back (e.g. the enqueue's quota check throws), the file
+     * would otherwise be orphaned on disk with no Document row pointing at it. Clean it up only
+     * when the transaction doesn't commit.
+     */
+    private void registerStorageCleanupOnRollback(String storageKey) {
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != TransactionSynchronization.STATUS_COMMITTED) {
+                    storageProvider.delete(storageKey);
+                }
+            }
+        });
     }
 
     private boolean startsWith(byte[] content, byte[] prefix) {

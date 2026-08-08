@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
+import { ApiError } from "../api/client";
 import { getJob, isTerminal, type JobResponse } from "../api/jobs";
 
 interface JobProgressProps {
@@ -41,7 +42,7 @@ export function JobProgress({ jobId, label, onTerminal }: JobProgressProps) {
     return (
       <div className="error-banner" role="alert">
         <strong>Could not check status</strong>
-        <span>{error instanceof Error ? error.message : "Unknown error"}</span>
+        <span>{statusCheckErrorMessageFor(error)}</span>
       </div>
     );
   }
@@ -61,7 +62,7 @@ export function JobProgress({ jobId, label, onTerminal }: JobProgressProps) {
         <strong>
           {label ?? "This"} failed — {data.errorCode ?? "UNKNOWN_ERROR"}
         </strong>
-        {data.errorMessage && <span>{data.errorMessage}</span>}
+        <span>{jobFailureMessageFor(data.errorCode)}</span>
       </div>
     );
   }
@@ -76,4 +77,32 @@ export function JobProgress({ jobId, label, onTerminal }: JobProgressProps) {
       </span>
     </div>
   );
+}
+
+// The API only ever sends a stable errorCode, never a diagnostic message (see JobResponse) —
+// this is the frontend-owned copy for each code, same pattern as DocumentDetail's
+// failureMessageFor/summaryErrorMessageFor.
+function jobFailureMessageFor(errorCode: string | null): string {
+  switch (errorCode) {
+    case "AI_SCHEMA_INVALID":
+      return "The AI's response couldn't be validated. Please try again.";
+    case "AI_INSUFFICIENT_CONTEXT":
+      return "There wasn't enough usable content to work with.";
+    case "TRANSIENT_FAILURE":
+      return "A temporary error occurred and retries were exhausted. Please try again.";
+    default:
+      return "Something went wrong. Please try again.";
+  }
+}
+
+function statusCheckErrorMessageFor(error: unknown): string {
+  if (error instanceof ApiError) {
+    switch (error.code) {
+      case "JOB_NOT_FOUND":
+        return "This job could not be found.";
+      default:
+        return "Please check your connection and try again.";
+    }
+  }
+  return "Please check your connection and try again.";
 }

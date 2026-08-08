@@ -1,5 +1,6 @@
 package com.studyflow;
 
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 import com.studyflow.ai.repo.AiCallRepository;
@@ -7,10 +8,15 @@ import com.studyflow.jobs.repo.AiJobRepository;
 import com.studyflow.library.repo.DocumentRepository;
 import com.studyflow.rag.repo.DocumentChunkRepository;
 import com.studyflow.study.repo.SummaryRepository;
+import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
+import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
+import com.tngtech.archunit.lang.ConditionEvents;
+import com.tngtech.archunit.lang.SimpleConditionEvent;
+import java.util.UUID;
 
 /**
  * The #1 IDOR defence for this app (see specs/02-data-model.md §Tenancy enforcement,
@@ -56,4 +62,55 @@ class ArchitectureTest {
             .that().resideOutsideOfPackage("com.studyflow.study.repo")
             .should().callMethod(SummaryRepository.class, "findById", Object.class)
             .because("callers must use findByIdAndOwnerId instead — see specs/02-data-model.md");
+
+    // The rules above only ban the unscoped escape hatch; they don't verify the scoped
+    // replacement actually exists. Without this, a repository could lose findByIdAndOwnerId
+    // entirely (e.g. during a refactor) and every rule above would still pass.
+    @ArchTest
+    static final ArchRule documentRepositoryDeclaresOwnerScopedFinder = classes()
+            .that().areAssignableTo(DocumentRepository.class)
+            .should(declareOwnerScopedFindById())
+            .because("owner-scoped repositories must expose findByIdAndOwnerId(UUID, UUID) — see "
+                    + "specs/02-data-model.md");
+
+    @ArchTest
+    static final ArchRule documentChunkRepositoryDeclaresOwnerScopedFinder = classes()
+            .that().areAssignableTo(DocumentChunkRepository.class)
+            .should(declareOwnerScopedFindById())
+            .because("owner-scoped repositories must expose findByIdAndOwnerId(UUID, UUID) — see "
+                    + "specs/02-data-model.md");
+
+    @ArchTest
+    static final ArchRule aiJobRepositoryDeclaresOwnerScopedFinder = classes()
+            .that().areAssignableTo(AiJobRepository.class)
+            .should(declareOwnerScopedFindById())
+            .because("owner-scoped repositories must expose findByIdAndOwnerId(UUID, UUID) — see "
+                    + "specs/02-data-model.md");
+
+    @ArchTest
+    static final ArchRule aiCallRepositoryDeclaresOwnerScopedFinder = classes()
+            .that().areAssignableTo(AiCallRepository.class)
+            .should(declareOwnerScopedFindById())
+            .because("owner-scoped repositories must expose findByIdAndOwnerId(UUID, UUID) — see "
+                    + "specs/02-data-model.md");
+
+    @ArchTest
+    static final ArchRule summaryRepositoryDeclaresOwnerScopedFinder = classes()
+            .that().areAssignableTo(SummaryRepository.class)
+            .should(declareOwnerScopedFindById())
+            .because("owner-scoped repositories must expose findByIdAndOwnerId(UUID, UUID) — see "
+                    + "specs/02-data-model.md");
+
+    private static ArchCondition<JavaClass> declareOwnerScopedFindById() {
+        return new ArchCondition<>("declare findByIdAndOwnerId(UUID, UUID)") {
+            @Override
+            public void check(JavaClass javaClass, ConditionEvents events) {
+                boolean declared = javaClass.tryGetMethod("findByIdAndOwnerId", UUID.class, UUID.class).isPresent();
+                String message = javaClass.getFullName()
+                        + (declared ? " declares findByIdAndOwnerId(UUID, UUID)"
+                                : " does not declare findByIdAndOwnerId(UUID, UUID)");
+                events.add(new SimpleConditionEvent(javaClass, declared, message));
+            }
+        };
+    }
 }

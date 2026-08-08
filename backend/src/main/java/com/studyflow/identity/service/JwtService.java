@@ -52,7 +52,9 @@ public class JwtService {
         }
         // "aud" is a registered claim name: jjwt normalizes it to Set<String> on read
         // regardless of how it was written, so compare via getAudience(), not a raw get("aud").
-        if (!claims.getAudience().contains(properties.getAudience())) {
+        // A token with no "aud" claim at all yields a null Set here, not an empty one — treat
+        // that the same as a non-matching audience rather than letting it NPE past validation.
+        if (claims.getAudience() == null || !claims.getAudience().contains(properties.getAudience())) {
             throw new JwtException("Unexpected audience");
         }
         return claims;

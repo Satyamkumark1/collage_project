@@ -44,7 +44,8 @@ public class JobEnqueueService {
         }
         if (fingerprint != null) {
             Optional<AiJob> succeeded = repository
-                    .findFirstByInputFingerprintAndStatusOrderByCreatedAtDesc(fingerprint, JobStatus.SUCCEEDED);
+                    .findFirstByOwnerIdAndInputFingerprintAndStatusOrderByCreatedAtDesc(ownerId, fingerprint,
+                            JobStatus.SUCCEEDED);
             if (succeeded.isPresent()) {
                 return succeeded.get();
             }

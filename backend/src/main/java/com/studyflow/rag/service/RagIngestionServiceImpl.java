@@ -1,6 +1,7 @@
 package com.studyflow.rag.service;
 
 import com.studyflow.common.hash.Sha256;
+import com.studyflow.jobs.domain.TransientJobException;
 import com.studyflow.jobs.service.ProgressReporter;
 import com.studyflow.library.domain.DocumentFileType;
 import com.studyflow.rag.domain.DocumentChunk;
@@ -74,6 +75,16 @@ public class RagIngestionServiceImpl implements RagIngestionService {
         progress.report(60, "EMBEDDING");
         List<String> texts = savedChunks.stream().map(DocumentChunk::getContent).toList();
         List<float[]> embeddings = embeddingClient.embed(texts);
+        if (embeddings.size() != savedChunks.size()) {
+            throw new TransientJobException("Embedding provider returned " + embeddings.size() + " vectors for "
+                    + savedChunks.size() + " chunks");
+        }
+        int expectedDimension = embeddings.isEmpty() ? 0 : embeddings.get(0).length;
+        for (float[] embedding : embeddings) {
+            if (embedding.length != expectedDimension) {
+                throw new TransientJobException("Embedding provider returned inconsistent vector dimensions");
+            }
+        }
         for (int i = 0; i < savedChunks.size(); i++) {
             DocumentChunk chunk = savedChunks.get(i);
             chunkEmbeddingDao.insert(chunk.getId(), documentId, ownerId, embeddings.get(i), embeddingClient.model(),

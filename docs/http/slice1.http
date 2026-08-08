@@ -30,6 +30,7 @@ Content-Type: application/json
 
 ### 3. Current user
 @accessToken = PASTE_ACCESS_TOKEN_HERE
+@refreshCookie = PASTE_REFRESH_COOKIE_VALUE_HERE
 GET {{baseUrl}}/me
 Authorization: Bearer {{accessToken}}
 
@@ -61,34 +62,63 @@ Authorization: Bearer {{accessToken}}
 GET {{baseUrl}}/documents/{{documentId}}
 Authorization: Bearer {{accessToken}}
 
-### 8. Request a summary (only once the document above is READY)
+### 8. Upload a second, separate document for the not-ready check below — copy its
+### documentId into @notReadyDocumentId. Don't reuse @documentId: by the time the
+### error-path checks run it has already reached READY (and later gets soft-deleted).
+POST {{baseUrl}}/documents
+Authorization: Bearer {{accessToken}}
+Idempotency-Key: 44444444-4444-4444-4444-444444444444
+Content-Type: multipart/form-data; boundary=studyflow-boundary
+
+--studyflow-boundary
+Content-Disposition: form-data; name="file"; filename="notes-not-ready.md"
+Content-Type: text/markdown
+
+# Sample notes for the not-ready check
+This document is used to catch the 409 DOCUMENT_NOT_READY window.
+--studyflow-boundary--
+
+### 9. Summary requested before ingestion finishes -> 409 DOCUMENT_NOT_READY. Run this
+### immediately after step 8, before polling/waiting for that document to reach READY.
+@notReadyDocumentId = PASTE_NOT_READY_DOCUMENT_ID_HERE
+POST {{baseUrl}}/documents/{{notReadyDocumentId}}/summaries
+Authorization: Bearer {{accessToken}}
+Idempotency-Key: 33333333-3333-3333-3333-333333333333
+
+### 10. Request a summary (only once the document from step 4/7 is READY)
 POST {{baseUrl}}/documents/{{documentId}}/summaries
 Authorization: Bearer {{accessToken}}
 Idempotency-Key: 22222222-2222-2222-2222-222222222222
 
-### 9. Poll the summary job — copy jobId from step 8's response
+### 11. Poll the summary job — copy jobId from step 10's response
 @summaryJobId = PASTE_SUMMARY_JOB_ID_HERE
 GET {{baseUrl}}/jobs/{{summaryJobId}}
 Authorization: Bearer {{accessToken}}
 
-### 10. List summaries for the document
+### 12. List summaries for the document
 GET {{baseUrl}}/documents/{{documentId}}/summaries
 Authorization: Bearer {{accessToken}}
 
-### 11. Refresh (cookie-authenticated — most HTTP clients replay cookies automatically
-### after step 2; if not, set the Cookie header manually)
+### 13. Refresh (cookie-authenticated — most HTTP clients replay cookies automatically
+### after step 2; if not, the explicit Cookie header below using @refreshCookie makes this
+### runnable standalone. X-Request-Id is required — see docs/DECISIONS.md's interim CSRF
+### mitigation for /auth/refresh and /auth/logout.)
 POST {{baseUrl}}/auth/refresh
+X-Request-Id: manual-verification-refresh
+Cookie: refresh_token={{refreshCookie}}
 
-### 12. Logout — revokes the whole refresh-token family
+### 14. Logout — revokes the whole refresh-token family
 POST {{baseUrl}}/auth/logout
+X-Request-Id: manual-verification-logout
+Cookie: refresh_token={{refreshCookie}}
 
-### 13. Delete a document (soft delete)
+### 15. Delete a document (soft delete)
 DELETE {{baseUrl}}/documents/{{documentId}}
 Authorization: Bearer {{accessToken}}
 
 ### --- Error-path checks worth re-running by hand ---
 
-### 14. Duplicate registration -> 409 AUTH_EMAIL_ALREADY_REGISTERED
+### 16. Duplicate registration -> 409 AUTH_EMAIL_ALREADY_REGISTERED
 POST {{baseUrl}}/auth/register
 Content-Type: application/json
 
@@ -99,7 +129,7 @@ Content-Type: application/json
   "birthYear": 2000
 }
 
-### 15. Wrong password -> 401 AUTH_INVALID_CREDENTIALS (same code/message as unknown email)
+### 17. Wrong password -> 401 AUTH_INVALID_CREDENTIALS (same code/message as unknown email)
 POST {{baseUrl}}/auth/login
 Content-Type: application/json
 
@@ -108,10 +138,5 @@ Content-Type: application/json
   "password": "not the right password"
 }
 
-### 16. Summary requested before ingestion finishes -> 409 DOCUMENT_NOT_READY
-POST {{baseUrl}}/documents/{{documentId}}/summaries
-Authorization: Bearer {{accessToken}}
-Idempotency-Key: 33333333-3333-3333-3333-333333333333
-
-### 17. Unmapped route -> 404 NOT_FOUND (RFC 9457 problem+json)
+### 18. Unmapped route -> 404 NOT_FOUND (RFC 9457 problem+json)
 GET {{baseUrl}}/this-route-does-not-exist
