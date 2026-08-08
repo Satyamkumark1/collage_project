@@ -1,6 +1,6 @@
 # Phase 3 — Batch study generation
 
-**Status: ⬜ Not started**
+**Status: 🟨 Checkpoint 15 complete; later checkpoints pending**
 
 ## Scope (per [`specs/ROADMAP.md`](../../specs/ROADMAP.md) and [`specs/10-study-features.md`](../../specs/10-study-features.md))
 
@@ -15,10 +15,29 @@ harness (`eval/` directory, CI-gated quality gates: schema pass rate, MCQ validi
 groundedness, job latency) earn their cost — the eval harness gets built alongside MCQs, not
 before there's a batch feature to evaluate.
 
-## Why it hasn't started
+## What landed so far
 
-Sequenced after Phase 2 (tutor chat + retrieval) per the roadmap — retrieval and the grounding
-contract are the higher-risk, more central piece to get right first.
+Checkpoint 15 is now in place:
+
+- `ChunkQueryService.ChunkView` exposes the richer citation fields (`chunkIndex`, `pageFrom`,
+  `pageTo`, `sectionPath`) used by key points and later batch-study features.
+- `BatchRepairLoop` exists as the shared partial-success repair primitive for batch AI outputs.
+- Key points extraction is wired end-to-end: migration, handler, controller, repository, prompt,
+  response DTOs, frontend page/API, and a live Postgres/Groq integration test.
+
+Redacted verification excerpt:
+
+```text
+cd backend && set -a && source .env && set +a && ./mvnw -q -Dtest=KeyPointGenerationIntegrationTest test
+...
+KeyPointGenerationIntegrationTest  : Started KeyPointGenerationIntegrationTest
+...
+BUILD SUCCESS
+```
+
+## What remains
+
+Later checkpoints for MCQs, the eval harness, and flashcards remain pending.
 
 ## What it needs before starting
 

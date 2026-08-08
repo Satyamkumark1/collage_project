@@ -5,9 +5,9 @@ rule: one working vertical slice at a time, never shallow scaffolding across the
 `CLAUDE.md`'s Build Log tracks phase completion with exit-criteria evidence; this file tracks the
 plan those phases follow.
 
-## Phase 1 (current) — Auth → Upload → Ingestion → Async Summary
+## Phase 1 — Auth → Upload → Ingestion → Async Summary
 
-**Status:** in progress, started 2026-08-08.
+**Status:** done, 2026-08-08.
 
 The first fully-real vertical slice: a student can register, log in, upload a PDF, watch it get
 parsed/chunked/embedded, request a summary, and receive a real Groq-generated, cited summary —
@@ -21,14 +21,25 @@ Postgres instead of Testcontainers, local disk instead of Cloudinary, no Redis, 
 email-verification, DPDP gate without consent-collection UX, PDF/TXT/MD only, Voyage AI for
 embeddings, no retrieval search yet (summaries are map-reduce, not RAG search).
 
-## Phase 2 (next) — Tutor chat + retrieval
+## Phase 2 — Tutor chat + retrieval
 
-Hybrid retrieval (vector + lexical + RRF + rerank + neighbour expansion — [09-rag.md](09-rag.md)),
-the grounding contract (confidence-floor refusal, mandatory citations, "explain beyond my notes"
-toggle), streaming SSE chat, `conversations`/`messages` tables. This is the feature the product's
-core promise ("only answers from your notes, with citations") most directly depends on — it comes
-right after the walking skeleton because everything else (MCQs, flashcards, quizzes) is lower-risk
-engineering by comparison.
+**Status:** done, 2026-08-08.
+
+Hybrid retrieval (vector + lexical + RRF + neighbour expansion — [09-rag.md](09-rag.md); rerank is
+not implemented, see below), the grounding contract (confidence-floor refusal, mandatory
+citations, "explain beyond my notes" toggle), streaming SSE chat, `conversations`/`messages`
+tables. This is the feature the product's core promise ("only answers from your notes, with
+citations") most directly depends on — it came right after the walking skeleton because everything
+else (MCQs, flashcards, quizzes) is lower-risk engineering by comparison.
+
+The original master spec's §7 (which would have specified retrieval parameters in detail) was
+never actually provided (see [15-PENDING.md](15-PENDING.md)) — every parameter (top-k sizes, RRF's
+`k=60`, the 0.35 confidence floor, the tutor model choice) was designed for this build rather than
+pulled from spec text, and is recorded with rationale in `/docs/DECISIONS.md`. A dedicated rerank
+stage (cross-encoder or similar, re-scoring the RRF-fused set before neighbour expansion) is
+listed in the original spec but not implemented this phase — RRF fusion alone was judged
+sufficient without an eval harness (Phase 3) to demonstrate rerank earns its added latency/cost;
+revisit once that harness exists.
 
 ## Phase 3 — Batch study generation
 

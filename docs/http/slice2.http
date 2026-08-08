@@ -1,0 +1,82 @@
+### StudyFlow AI — Phase 2 manual verification collection
+### REST Client (VS Code) / IntelliJ HTTP Client syntax. Every tutor-chat endpoint built in
+### Phase 2 (specs/09-rag.md §Grounding contract, specs/03-api-and-errors.md) is exercised here.
+### Run against a local dev server: cd backend && ./run-dev.sh
+### Assumes a document is already uploaded and READY — see docs/http/slice1.http steps 1-7.
+
+@baseUrl = http://localhost:8080/api/v1
+@email = demo@example.com
+@password = correct horse battery
+
+### 1. Login (reuse an account from slice1.http, or register fresh via slice1.http step 1)
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### 2. Create a conversation for a READY document — copy documentId from slice1.http step 7
+@accessToken = PASTE_ACCESS_TOKEN_HERE
+@documentId = PASTE_READY_DOCUMENT_ID_HERE
+POST {{baseUrl}}/documents/{{documentId}}/conversations
+Authorization: Bearer {{accessToken}}
+
+### 3. List conversations for that document
+GET {{baseUrl}}/documents/{{documentId}}/conversations
+Authorization: Bearer {{accessToken}}
+
+### 4. Get one conversation — copy id from step 2's response
+@conversationId = PASTE_CONVERSATION_ID_HERE
+GET {{baseUrl}}/conversations/{{conversationId}}
+Authorization: Bearer {{accessToken}}
+
+### 5. Ask a grounded question — streamed text/event-stream response (token/done events).
+### Most HTTP clients show the raw SSE body once the stream completes rather than rendering it
+### incrementally; that's expected — the frontend's fetch+ReadableStream reader is what consumes
+### it live (see frontend/src/api/tutor.ts).
+POST {{baseUrl}}/conversations/{{conversationId}}/messages
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "content": "What does atomicity mean for a database transaction?",
+  "explainBeyondNotes": false
+}
+
+### 6. Ask an unrelated question with "explain beyond my notes" on — expect a "done" event with
+### grounded: false, beyondNotes: true.
+POST {{baseUrl}}/conversations/{{conversationId}}/messages
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "content": "Unrelated to the notes: name a famous mountain range in South America.",
+  "explainBeyondNotes": true
+}
+
+### 7. List messages for the conversation — both turns from steps 5-6 should be present,
+### assistant turns carrying citations/grounded/beyondNotes.
+GET {{baseUrl}}/conversations/{{conversationId}}/messages
+Authorization: Bearer {{accessToken}}
+
+### --- Error-path checks worth re-running by hand ---
+
+### 8. Conversation on a not-yet-READY document -> 409 DOCUMENT_NOT_READY. Upload a fresh
+### document first (see slice1.http step 8 pattern) and use its documentId here immediately,
+### before it reaches READY.
+@notReadyDocumentId = PASTE_NOT_READY_DOCUMENT_ID_HERE
+POST {{baseUrl}}/documents/{{notReadyDocumentId}}/conversations
+Authorization: Bearer {{accessToken}}
+
+### 9. Another user's conversation -> 404 CONVERSATION_NOT_FOUND. Log in as a second account
+### (register a new one via slice1.http step 1) and use its accessToken here against the
+### conversationId from step 2/4 above, which belongs to the first user.
+@otherAccessToken = PASTE_OTHER_USER_ACCESS_TOKEN_HERE
+GET {{baseUrl}}/conversations/{{conversationId}}
+Authorization: Bearer {{otherAccessToken}}
+
+### 10. Unmapped route under /conversations -> 404 NOT_FOUND
+GET {{baseUrl}}/conversations/00000000-0000-0000-0000-000000000000/does-not-exist
+Authorization: Bearer {{accessToken}}

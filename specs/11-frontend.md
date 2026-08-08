@@ -76,7 +76,15 @@ contrast, screen-reader live regions where content streams/updates. Works at 360
 ## Pages — this phase
 
 Register · Login · Library (list, empty state, upload action) · Upload · Document Detail (reader
-status + "Generate Summary" + job progress + summary with citation list).
+status + "Generate Summary" + job progress + summary with citation list) · Tutor (Phase 2 — chat
+thread per document, streamed replies, "explain beyond my notes" toggle, per-message grounding
+badge and citation rail — see [09-rag.md](09-rag.md) §Grounding contract).
+
+Streamed tutor replies are read via `fetch` + `ReadableStream`, not `EventSource` — the endpoint
+is a `POST` with an `Authorization` header, neither of which `EventSource` supports. Tokens arrive
+as they stream; the assistant bubble shows accumulated text with a typing-cursor indicator
+(`prefers-reduced-motion`-respecting) until the `done` event lands with citations and the
+grounded/beyond-notes flag.
 
 Deferred pages (Landing, Pricing, Dashboard, Summaries-as-own-page, Key points, Flashcards,
-Quizzes, Tutor, Planner, Usage & billing, Settings, Admin) get added as their features land.
+Quizzes, Planner, Usage & billing, Settings, Admin) get added as their features land.

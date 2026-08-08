@@ -42,17 +42,21 @@ the frontend, keyed by `code` — never render `detail` directly to a user.
 | `AI_SCHEMA_INVALID` | 422 | Model output unrepairable after one repair call |
 | `AI_INSUFFICIENT_CONTEXT` | 422 | Not enough grounded material (used once retrieval exists) |
 | `QUOTA_UPLOADS_EXCEEDED` | 402 | Monthly upload cap hit |
-| `QUOTA_AI_EXCEEDED` | 402 | Monthly AI job cap hit |
+| `QUOTA_AI_EXCEEDED` | 402 | AI quota exceeded for monthly jobs or daily tutor messages |
 | `VALIDATION_FAILED` | 400 | Request body failed bean validation |
 | `AUTH_EMAIL_ALREADY_REGISTERED` | 409 | Email already has an account (not in original spec — added during build, see `/docs/DECISIONS.md`) |
 | `DOCUMENT_NOT_FOUND` | 404 | Owner-scoped GET/DELETE found no matching document (added during build) |
 | `SUMMARY_NOT_FOUND` | 404 | Owner-scoped GET found no matching summary (added during build) |
+| `CONVERSATION_NOT_FOUND` | 404 | Owner-scoped GET found no matching tutor conversation (added during build, Phase 2) |
 | `NOT_FOUND` | 404 | Unmapped route (added during build) |
 | `INTERNAL_ERROR` | 500 | Unhandled exception, never leaks detail (added during build) |
 
-Codes reserved for later phases (`AUTH_EMAIL_UNVERIFIED`, `RATE_LIMITED`,
-`PAYMENT_SIGNATURE_INVALID`, `TUTOR_OUT_OF_SCOPE`, etc.) are listed in the original spec and will
-be added to this table when the features that raise them are built.
+`TUTOR_OUT_OF_SCOPE` is **not implemented** despite being reserved for this phase — nothing in the
+spec defines what "out of scope" means beyond "not grounded in the student's notes," which the
+confidence-floor refusal already handles as a normal (non-error) chat message. See
+docs/DECISIONS.md. Codes reserved for later phases still (`AUTH_EMAIL_UNVERIFIED`, `RATE_LIMITED`,
+`PAYMENT_SIGNATURE_INVALID`, etc.) are listed in the original spec and will be added to this table
+when the features that raise them are built.
 
 ## Endpoint map — this phase
 
@@ -74,11 +78,20 @@ be added to this table when the features that raise them are built.
 - `POST /documents/{id}/summaries` (`Idempotency-Key` required) → 202 `{jobId}`
 - `GET /documents/{id}/summaries` · `GET /summaries/{id}`
 
+**Tutor** (Phase 2 — see [09-rag.md](09-rag.md) §Grounding contract)
+- `POST /documents/{id}/conversations` → 201 `{id, documentId, createdAt}`
+- `GET /documents/{id}/conversations` (cursor-paginated) · `GET /conversations/{id}`
+- `GET /conversations/{id}/messages`
+- `POST /conversations/{id}/messages` `{content, explainBeyondNotes}` → `200`, streamed
+  `text/event-stream` (`token`/`done`/`error` events) — synchronous streaming, not an async job
+  (see [01-architecture.md](01-architecture.md) sync/async boundary table), so **no**
+  `Idempotency-Key`, unlike every other job-creating POST in this table.
+
 **Jobs**
 - `GET /jobs/{id}` · `GET /jobs` (for re-attaching in-flight jobs on page load)
 
 **Ops**
 - `GET /actuator/health` (public liveness)
 
-Endpoints for MCQs, flashcards, quizzes, tutor, planner, exports, billing, and admin are in the
-original spec's endpoint map and will be added to this file phase by phase — see `ROADMAP.md`.
+Endpoints for MCQs, flashcards, quizzes, planner, exports, billing, and admin are in the original
+spec's endpoint map and will be added to this file phase by phase — see `ROADMAP.md`.

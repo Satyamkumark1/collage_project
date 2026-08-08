@@ -5,6 +5,25 @@ Silent deviation is the failure mode; this log is what makes deviation legitimat
 
 ---
 
+## 2026-08-08 — Phase 3 checkpoint 15: key points + shared batch repair loop
+
+**What changed:** Key points extraction was implemented first for batch-study generation, with a
+shared `BatchRepairLoop` that keeps valid items from a batch, repairs only malformed ones once,
+and fails only if zero items survive. The frontend now has a dedicated key-points page and the
+backend exposes `/documents/{id}/key-points`.
+
+**Why:** Key points are the smallest useful batch feature and the right place to establish the
+shared partial-success pattern MCQs and flashcards will reuse later. The richer `ChunkView`
+fields were also surfaced here so later batch features can steer citations by chunk/page/section
+without another data-model pass.
+
+**What it costs:** The batch repair heuristic and citation-shape details were intentionally
+designed for this build because the master spec text was not available in full detail here. That
+makes the implementation explicit and testable, but it means later spec recovery should review
+these choices before extending them to MCQs/flashcards.
+
+---
+
 ## 2026-08-08 — Testcontainers → local Postgres for integration tests
 
 **What changed:** Integration tests run against a real, dedicated local `studyflow_test`
@@ -326,3 +345,172 @@ the cookie) is still deferred; revisit alongside real session/CSRF-token infrast
 future deployment puts the frontend and API on genuinely different registrable domains,
 `SameSite=Strict` would need revisiting too (would break the cookie entirely, not just weaken
 CSRF protection).
+
+---
+
+## 2026-08-08 — Phase 2 retrieval parameters and grounding contract: designed, not pulled from spec
+
+**What changed:** `specs/09-rag.md` §Retrieval and the tutor grounding contract were marked
+"deferred, full detail in the original spec" — but the original master spec's §7 (Retrieval) and
+the tutor half of §8 were never actually pasted (see `specs/15-PENDING.md`: the paste truncated
+mid-§12, and nothing from §13 onward, including whatever numbering covered retrieval detail if it
+was later in the doc, ever arrived). Starting Phase 2 needs concrete numbers that don't exist
+anywhere in this repo or in the approved build plan (checked both). Rather than block Phase 2 on
+a paste that may never come, the following was designed from scratch, using the constraints that
+*are* documented (pgvector HNSW index already live with `vector_cosine_ops`, `ef_construction=64`;
+product promise is "only answers from your notes, with citations"; DECISIONS.md's own precedent
+that a documented decision beats a silent gap):
+
+- **Conversation scope:** one conversation belongs to exactly one document (`POST
+  /documents/{id}/conversations`), matching every other AI feature this build has (summaries are
+  per-document too). Cross-document / whole-library tutor chat is not this phase's design — no
+  spec text asked for it, and single-document scope is what the existing retrieval index
+  (`document_chunks`/`chunk_embeddings`, both carrying `document_id`) is already shaped for.
+- **Vector arm:** top 20 nearest chunks by pgvector cosine distance (`<=>`), scoped to
+  `(document_id, owner_id)`, `hnsw.ef_search=40` per session (the value `specs/02-data-model.md`
+  already reserved for "once retrieval exists").
+- **Lexical arm:** Postgres full-text search. `document_chunks` gets a generated
+  `content_tsv tsvector` column (`to_tsvector('english', content)`) + GIN index (V12 migration).
+  Query via `plainto_tsquery('english', ?)`, ranked by `ts_rank_cd`, top 20, same
+  `(document_id, owner_id)` scope.
+- **Fusion:** Reciprocal Rank Fusion, `k=60` (the standard RRF constant from the original TREC
+  paper, and the value most hybrid-search writeups converge on absent a reason to tune it) —
+  `score(chunk) = Σ 1/(60 + rank_in_list)` over whichever of the two ranked lists the chunk
+  appears in. Top 8 fused chunks proceed to the next step. **No separate rerank stage** — the
+  original spec's "RRF + rerank" pairing implies a cross-encoder (or similar) re-scoring pass
+  after fusion; that's a real quality lever but also real added latency and a new model
+  dependency, and without the eval harness (Phase 3) to measure whether it actually improves
+  citation relevance for this document set, adding it now would be tuning against nothing. RRF
+  alone is a reasonable baseline; revisit once Phase 3's eval harness can justify the cost.
+- **Neighbour expansion:** for each of the top-8 fused chunks, also pull `chunk_index - 1` and
+  `chunk_index + 1` from the same document (if present), deduplicated, capped at 16 total chunks
+  — keeps a citation's immediate context intact (a chunk boundary can land mid-explanation) without
+  ballooning the prompt.
+- **Confidence floor:** the best cosine similarity among the vector arm's hits (`1 -
+  min_distance`) is the grounding signal. Below **0.35**, the retrieved material is judged too
+  weak to answer from — the assistant responds with a refusal message (`grounded: false`, empty
+  citations) instead of calling the model on thin context, *unless* the "explain beyond my notes"
+  toggle is on for that message. 0.35 is a chosen threshold, not a measured one — there's no eval
+  harness yet (deferred to Phase 3, see `specs/08-ai-layer.md`) to tune it against; revisit once
+  one exists. This refusal is a normal chat message, not an HTTP error — "the tutor doesn't know"
+  is expected product behaviour, not a failure.
+- **Citations, mechanically:** chunks selected by retrieval are given a numbered manifest in the
+  prompt (`[1]`, `[2]`, …); the model is asked to cite inline using those numbers. After the
+  stream completes, citation markers are extracted by regex and mapped back to the fixed candidate
+  list — any out-of-range marker is dropped, never repaired. This sidesteps needing JSON-mode
+  structured output (and the summary feature's repair-loop) for a free-form streamed chat answer,
+  while keeping the same "never trust the model's self-reported reference" discipline: the
+  citation set is bounded by what retrieval actually returned, not by what the model claims.
+- **"Explain beyond my notes" toggle:** a per-message boolean. When true, the confidence floor is
+  skipped and the system prompt permits general knowledge, but the model is instructed to prefix
+  any non-notes content so a student can tell what's grounded and what isn't. `grounded: false` is
+  still recorded on that message for the UI to render distinctly.
+- **`TUTOR_OUT_OF_SCOPE` (reserved in `specs/03-api-and-errors.md`) — intentionally not
+  implemented.** The spec table lists it as reserved for this phase, but nothing anywhere defines
+  what "out of scope" means for a tutor beyond "not grounded in the student's notes" (which the
+  confidence-floor refusal above already handles). Building a separate off-topic/content
+  classifier would be inventing product behaviour with no spec basis — same discipline as
+  `specs/15-PENDING.md` applies to invented content. Left as a documented gap, not a silent one.
+- **Tutor model:** `openai/gpt-oss-20b` (config key `studyflow.ai.groq.models.tutor`), not the
+  `openai/gpt-oss-120b` used for summaries. Interactive chat has a first-token latency budget
+  (`specs/01-architecture.md`: "First token < 2.5s") that a batch summary job doesn't; the smaller
+  model class is the direct lever for that, and `specs/08-ai-layer.md` already lists it as an
+  available current-generation option. Revisit if quality feedback (once there's a way to collect
+  it) says otherwise.
+- **Quota:** tutor messages reuse the existing `usage_counters` mechanism rather than a new table.
+  `usage_counters.period_ym` (`VARCHAR(7)`, month-only) is widened to `VARCHAR(10)` so a
+  day-granularity key (`2026-08-08`) can share the column with the existing month-granularity keys
+  — `QuotaService` gained a period-parameterised overload rather than a new service. Limit: 30/day
+  (`studyflow.quota.tutor-messages-per-day`), matching `specs/06-rate-limiting.md`'s FREE-tier
+  bucket table, enforced as a monthly-style atomic counter instead of the spec's L1+L2 token bucket
+  (Redis is still deferred — see the existing rate-limiting deviation above). On exceeding it, the
+  existing `QUOTA_AI_EXCEEDED` code is reused rather than minting a tutor-specific quota code — the
+  spec's error table has no such code, and the semantics ("you've hit this month's/day's AI usage
+  cap") are identical.
+
+**What it costs:** These are load-bearing product numbers (confidence floor, RRF k, top-k sizes)
+invented under real constraints rather than lifted from the master spec's actual §7. If the
+missing paste ever arrives with different numbers, treat this whole entry as superseded and
+re-tune against it — nothing here should be assumed authoritative over the original spec once it's
+available.
+
+---
+
+## 2026-08-08 — Fixed: concurrent `/auth/refresh` returned 500 instead of 401 AUTH_REFRESH_REUSED
+
+**What changed:** Found via manual browser E2E testing for Phase 2 (a full page reload's silent
+refresh raced against another in-flight one), then reproduced deterministically with two real
+concurrent `curl` calls sharing one refresh cookie. `RefreshTokenService.revokeFamily` is now
+`@Transactional(propagation = REQUIRES_NEW)` and called via a lazily-injected self-reference
+(`self.revokeFamily(...)`, same pattern `JobLifecycleService` already uses) instead of a bare
+same-class call; `RefreshTokenService.rotate` and `AuthService.refresh` dropped their
+`noRollbackFor = ApiException.class`.
+
+**Why:** Two bugs stacked. (1) `rotate()`'s reuse-detection catch block called `revokeFamily(...)`
+as a plain `this.`-style call — Spring AOP proxies never intercept same-class self-invocations, so
+`@Transactional(REQUIRES_NEW)` on `revokeFamily` was syntactically present but functionally inert;
+it silently joined `rotate()`'s already-failed transaction instead of getting a fresh Hibernate
+session. (2) The `saveAndFlush(current)` that threw `ObjectOptimisticLockingFailureException`
+already left that persistence context unreliable for further writes — `revokeFamily`'s own
+`saveAll` inside it re-threw essentially the same exception, past the catch block, as an unhandled
+500. Once `self.revokeFamily(...)` correctly went through the proxy and got its own transaction,
+a *second*, related issue surfaced: `rotate()`/`refresh()`'s `noRollbackFor` (originally added so
+the revocation wouldn't be undone by a rollback) was no longer just unnecessary but actively
+harmful — with the revocation now persisting independently, letting the outer transaction commit
+would leave the just-issued, unrevoked, still-valid child token (inserted by `issue()` before the
+failing flush) permanently committed and undetected by the revocation. Dropping `noRollbackFor` so
+the outer transaction rolls back on `ApiException` discards that orphan instead.
+
+**What it costs:** Nothing functional — this is a correctness fix, not a behavior change from what
+the reuse-detection design already intended. Worth remembering for any future same-class call to a
+`@Transactional`-annotated sibling method: it needs to go through the bean's own proxy (self-
+injection, or an external caller) or the annotation does nothing, silently. Regression test:
+`AuthFlowIntegrationTest.concurrentRefreshWithTheSameCookieNeverProducesA500`.
+
+---
+
+## 2026-08-08 — Tutor chat message persistence: `conversations`/`messages`, no soft delete yet
+
+**What changed:** `conversations` (id, document_id, owner_id, created_at, updated_at) and
+`messages` (id, conversation_id, owner_id, role, content, citations jsonb, grounded, beyond_notes,
+model, prompt_version, created_at) tables added (V12), matching the shape `specs/02-data-model.md`
+already reserved for them. No `deleted_at` on either table — no delete/archive feature exists yet
+for conversations, same position `summaries` already takes (soft delete exists on `documents`
+because re-upload-dedup and library-list filtering need it; nothing here needs the equivalent
+yet). Add it additively if/when a delete-conversation feature is built.
+
+**Why:** Keeps the table shape minimal and matches existing precedent rather than speculatively
+building delete support nothing asked for yet (see CLAUDE.md's own "don't design for hypothetical
+future requirements").
+
+**What it costs:** Nothing yet.
+
+---
+
+## 2026-08-08 — Voyage AI account has no payment method: hard 3 RPM / 10K TPM cap
+
+**What changed:** Nothing in application code. Documenting a real infrastructure constraint
+discovered while running Phase 2's integration tests: this build's Voyage AI account has no
+payment method on file, so every request is capped at **3 requests/minute and 10K tokens/minute**
+(confirmed via a direct `curl` against `/v1/embeddings`, which returned `429` with that exact
+explanation). The 200M free-token allowance from the earlier embedding-provider decision above
+still applies — this is a rate cap, not a spend cap.
+
+**Why this matters:** A single real-infra test class that ingests more than one document (or
+issues more than a couple of retrieval queries) in quick succession can trip this cap well within
+normal test runtime, and the *whole* suite run (ingestion + summary + retrieval + tutor tests
+combined) reliably exceeds 3 Voyage calls inside any 60-second window. The job engine's own
+retry/backoff (`specs/07-jobs-and-async.md`) handles this correctly in production — a 429 is a
+transient failure, requeued with backoff — but test helpers that wait for a job to reach a
+terminal state need to keep calling `JobDispatcher.pollOnce()` while they wait (background polling
+is disabled in tests for determinism), or a requeued job just sits `QUEUED` until the test's own
+timeout fires. Every integration test with an `awaitJobTerminal` helper was updated to re-poll on
+each wait iteration, mirroring what the real `@Scheduled` dispatcher does at runtime.
+
+**What it costs:** A full `mvn test` run against real infrastructure can still intermittently hit
+`429`s from Voyage under sustained back-to-back runs (this account tier's cap is tight enough that
+even correct backoff/retry can occasionally exhaust 3 attempts inside a short window) — the
+symptom is a job landing in `FAILED` with `TRANSIENT_FAILURE`/`STALE_HEARTBEAT` rather than a code
+defect. Adding a payment method (per Voyage's own error message) would remove this ceiling
+entirely; not this session's call to make. Until then, spacing real-infra test runs apart in time
+reduces but does not eliminate the risk.

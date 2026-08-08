@@ -41,6 +41,7 @@ studyflow:
   quota:
     uploads-per-month: 100
     ai-jobs-per-month: 60
+    tutor-messages-per-day: 30
   ai:
     voyage:
       api-key: ${VOYAGE_API_KEY}
@@ -51,6 +52,8 @@ studyflow:
       base-url: https://api.groq.com/openai/v1
       models:
         summary: openai/gpt-oss-120b
+        tutor: openai/gpt-oss-20b
+        key-points: openai/gpt-oss-120b
 
 management:
   endpoints:

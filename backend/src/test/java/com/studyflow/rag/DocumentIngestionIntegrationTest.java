@@ -15,6 +15,8 @@ import com.studyflow.library.repo.DocumentRepository;
 import com.studyflow.rag.repo.DocumentChunkRepository;
 import com.studyflow.support.DatabaseCleanerExtension;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -130,8 +132,14 @@ class DocumentIngestionIntegrationTest {
     }
 
     private AiJob awaitJobTerminal(UUID jobId) throws InterruptedException {
-        // Real Voyage API round-trip; generous bound to absorb normal network latency variance.
-        for (int i = 0; i < 150; i++) {
+        // Background dispatcher polling is disabled in tests; a job requeued after a transient
+        // failure (e.g. a real provider rate limit) needs this loop to keep reclaiming it via
+        // pollOnce(), same as the real @Scheduled dispatcher would — otherwise a requeued job
+        // just sits QUEUED for the rest of the wait window. Deadline includes the documented
+        // 80-second backoff plus slack for normal latency.
+        Instant deadline = Instant.now().plus(Duration.ofSeconds(120));
+        while (Instant.now().isBefore(deadline)) {
+            jobDispatcher.pollOnce();
             AiJob job = aiJobRepository.findById(jobId).orElseThrow();
             if (job.getStatus() == JobStatus.SUCCEEDED || job.getStatus() == JobStatus.FAILED) {
                 return job;

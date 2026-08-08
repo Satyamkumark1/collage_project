@@ -84,10 +84,11 @@ public class AuthService {
         return new LoginResult(user, accessToken, issued.rawValue());
     }
 
-    // noRollbackFor: the reuse-detection branch below writes the family revocation and then
-    // deliberately throws ApiException to reject the request — a default rollback would undo
-    // the very revocation that's the point of detecting reuse.
-    @Transactional(noRollbackFor = ApiException.class)
+    // Plain @Transactional: RefreshTokenService.revokeFamily persists via its own independent
+    // REQUIRES_NEW transaction, so this one rolling back on the reuse-detection ApiException
+    // below (or on rotate()'s) doesn't undo the revocation — see RefreshTokenService.rotate's
+    // comment for why a rollback here is actually required, not just harmless.
+    @Transactional
     public LoginResult refresh(String rawRefreshToken, String userAgentHash, String ipHash) {
         RefreshToken current = refreshTokenService.findByRawValue(rawRefreshToken)
                 .orElseThrow(() -> new ApiException(ErrorCode.AUTH_TOKEN_EXPIRED, "Refresh token not recognised"));

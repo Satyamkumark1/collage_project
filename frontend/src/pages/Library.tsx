@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
+import { ApiError } from "../api/client";
 import { listDocuments, type DocumentResponse } from "../api/documents";
 
 const STATUS_LABEL: Record<DocumentResponse["status"], string> = {
@@ -38,7 +39,7 @@ export function Library() {
       {isError && (
         <div className="error-banner" role="alert">
           <strong>Couldn&apos;t load your library</strong>
-          <span>{error instanceof Error ? error.message : "Unknown error"}</span>
+          <span>{libraryErrorMessageFor(error)}</span>
           <button type="button" className="button button-secondary" onClick={() => refetch()}>
             Retry
           </button>
@@ -74,4 +75,16 @@ function badgeClassFor(status: DocumentResponse["status"]): string {
   if (status === "READY") return "badge-ready";
   if (status === "FAILED") return "badge-failed";
   return "badge-progress";
+}
+
+function libraryErrorMessageFor(error: unknown): string {
+  if (error instanceof ApiError) {
+    switch (error.code) {
+      case "AUTH_GUARDIAN_CONSENT_REQUIRED":
+        return "You do not have permission to view this library.";
+      default:
+        return "Something went wrong. Please try again.";
+    }
+  }
+  return "Something went wrong. Please try again.";
 }

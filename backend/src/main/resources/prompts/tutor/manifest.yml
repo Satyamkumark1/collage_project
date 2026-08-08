@@ -1,0 +1,10 @@
+purpose: tutor
+version: 1
+modelClass: small-instruct
+requiredVariables: []
+outputSchemaRef: none — free-form streamed chat; citations are extracted mechanically from
+  bracketed markers post-hoc rather than JSON-mode validated (see specs/09-rag.md, docs/DECISIONS.md)
+maxInputTokens: 6000
+changelog: >
+  v1 — initial tutor chat system prompt: delimited-notes grounding, inline bracket citations,
+  explain-beyond-notes mode.

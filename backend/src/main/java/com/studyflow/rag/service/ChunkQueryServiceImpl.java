@@ -19,7 +19,8 @@ public class ChunkQueryServiceImpl implements ChunkQueryService {
     @Transactional(readOnly = true)
     public List<ChunkView> findOrderedChunks(UUID documentId, UUID ownerId) {
         return chunkRepository.findByDocumentIdAndOwnerIdOrderByChunkIndexAsc(documentId, ownerId).stream()
-                .map(chunk -> new ChunkView(chunk.getId(), chunk.getContent(), chunk.getTokenCount()))
+                .map(chunk -> new ChunkView(chunk.getId(), chunk.getContent(), chunk.getTokenCount(),
+                        chunk.getChunkIndex(), chunk.getPageFrom(), chunk.getPageTo(), chunk.getSectionPath()))
                 .toList();
     }
 }

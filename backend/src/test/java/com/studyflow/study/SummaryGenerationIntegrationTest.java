@@ -14,6 +14,8 @@ import com.studyflow.study.dto.SummaryJobResponse;
 import com.studyflow.study.dto.SummaryResponse;
 import com.studyflow.support.DatabaseCleanerExtension;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -158,8 +160,14 @@ class SummaryGenerationIntegrationTest {
     }
 
     private AiJob awaitJobTerminal(UUID jobId) throws InterruptedException {
-        // Real Groq/Voyage API round-trips; generous bound to absorb normal network latency.
-        for (int i = 0; i < 150; i++) {
+        // Background dispatcher polling is disabled in tests; a job requeued after a transient
+        // failure (e.g. a real provider rate limit) needs this loop to keep reclaiming it via
+        // pollOnce(), same as the real @Scheduled dispatcher would — otherwise a requeued job
+        // just sits QUEUED for the rest of the wait window. Deadline includes the documented
+        // 80-second backoff plus slack for normal latency.
+        Instant deadline = Instant.now().plus(Duration.ofSeconds(120));
+        while (Instant.now().isBefore(deadline)) {
+            jobDispatcher.pollOnce();
             AiJob job = aiJobRepository.findById(jobId).orElseThrow();
             if (job.getStatus() == JobStatus.SUCCEEDED || job.getStatus() == JobStatus.FAILED) {
                 return job;

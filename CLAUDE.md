@@ -22,7 +22,7 @@ itself.
 ## Module boundaries
 
 Feature-first backend packages under `com.studyflow`: `common`, `identity`, `library`, `rag`,
-`ai`, `study`, `jobs` (this phase); `billing`, `tutor`, `planner`, `exports`, `admin` (later
+`ai`, `study`, `jobs`, `tutor` (built so far); `billing`, `planner`, `exports`, `admin` (later
 phases). Full detail: [`specs/01-architecture.md`](specs/01-architecture.md). **Rule:** cross-
 feature access only through a published service interface — never inject one feature's repository
 into another feature's service.
@@ -49,8 +49,9 @@ field the frontend switches on — never render `detail` to a user. Full code ta
   Flyway, always, from commit one.
 - Never write a repository query not scoped by `owner_id`. There is no "find by id" — only "find
   by id **and** owner."
-- Never call an LLM inside a request thread a browser is waiting on, except streamed chat
-  (deferred). Long AI work is an async job.
+- Never call an LLM inside a request thread a browser is waiting on, except streamed chat (tutor
+  — runs off the request thread via a dedicated pool + `SseEmitter`, never blocking the servlet
+  thread). Long AI work is an async job.
 - Never trust a model's JSON. Validate against a schema, then validate semantics, with one repair
   call on failure, and degrade gracefully rather than failing an entire batch.
 - Never interpolate uploaded document text into a system prompt — it goes in a delimited
@@ -83,7 +84,7 @@ Phase detail and sequencing: [`specs/ROADMAP.md`](specs/ROADMAP.md).
 |---|---|---|---|
 | 0 — Session 0 (this doc, specs/, scaffolds) | Done | 2026-08-08 | `specs/` 17 files; `mvn compile` clean; `/actuator/health` → 200; `npm run build` clean. |
 | 1 — Auth → Upload → Ingestion → Async Summary | Done | 2026-08-08 | See below. |
-| 2 — Tutor chat + retrieval | Not started | — | — |
+| 2 — Tutor chat + retrieval | Done | 2026-08-08 | See below. |
 | 3 — Batch study generation (MCQs/flashcards) + eval harness | Not started | — | — |
 | 4 — Quizzes | Not started | — | — |
 | 5 — Infra hardening (Cloudinary/Redis/Testcontainers/observability) | Not started | — | — |
@@ -112,6 +113,37 @@ redacted request/response evidence at each stage:
 - `80ee948` frontend + UI states + accessibility pass (keyboard nav, focus rings, error states)
 
 Manual verification collection: [`docs/http/slice1.http`](../docs/http/slice1.http).
+
+### Phase 2 exit-criteria evidence
+
+Backend test suite against real Postgres 15 + pgvector, real Groq (including streamed chat
+completions), real Voyage AI:
+
+```
+cd backend && set -a && source .env && set +a && ./mvnw test
+```
+
+`ArchitectureTest` (16 ArchUnit rules total, all tenancy checks across 8 owner-scoped
+repositories; Phase 1 had 5 owner-scoped repositories) and `GroqAiProviderStreamingTest` (SSE parsing +
+a `<think>` tag deliberately split across stream chunks, against a fake server) pass
+deterministically. `RetrievalServiceIntegrationTest` and `TutorChatIntegrationTest` — real hybrid
+retrieval (vector + lexical + RRF fusion + neighbour expansion) and a real streamed, cited tutor
+reply with the confidence-floor/explain-beyond-notes grounding contract exercised end to end — each
+pass cleanly run standalone; this account's Voyage tier is hard-capped at 3 requests/minute (no
+payment method on file, confirmed live), so an unbroken full-suite run can intermittently show a
+transient rate-limit failure that isn't a code defect — see `docs/DECISIONS.md`.
+
+End-to-end, driven through the real browser UI — register → login → upload a document → open the
+Tutor page → asked a question covered by the notes → watched a real, token-streamed Groq reply
+arrive with in-range citations and a "From your notes" grounding badge → toggled "explain beyond
+my notes" on an unrelated question → watched a "Beyond your notes" badge instead. No mocked step
+anywhere in the path. This walkthrough found and fixed two real bugs (a duplicate citation-rail
+render, and a pre-existing Phase 1 concurrent-`/auth/refresh` 500 that blocked verification itself)
+— see `docs/status/phase-2.md` and `docs/DECISIONS.md` for full writeups.
+
+Frontend: `tsc -b` strict-mode clean, `oxlint` clean, `npm run build` clean.
+
+Manual verification collection: [`docs/http/slice2.http`](docs/http/slice2.http).
 
 Update this table at the end of every phase with real evidence (a command output or passing test),
 not a checkmark.

@@ -46,20 +46,41 @@ Output dimension is confirmed via one real API call before the `chunk_embeddings
 vector(N)` column is migrated — never guessed. `model` and `model_version` are stored on every
 row so a future re-embed (new model) is a migration, not a rewrite.
 
-## Retrieval — deferred
+## Retrieval — Phase 2
 
-Hybrid retrieval (vector search + Postgres full-text, Reciprocal Rank Fusion, rerank, neighbour
-expansion, context assembly) is specified in full in the original spec but **not built this
-phase** — summary generation (the only AI feature this phase) is map-reduce over a document's own
-chunks in their stored order, not a retrieval search. Chunks and embeddings are still generated
-and stored during ingestion precisely so the next phase (tutor chat, which needs retrieval) isn't
-blocked on a re-ingestion migration.
+Hybrid retrieval, built for tutor chat. The original master spec's §7 (which would have specified
+this in full) was never actually received — see `specs/15-PENDING.md` — so the parameters below
+were designed for this build and are recorded, with rationale, in `/docs/DECISIONS.md` rather than
+pulled from spec text. Summary generation (Phase 1) is unaffected — it stays map-reduce over a
+document's own chunks in stored order, not a retrieval search.
 
-## Grounding contract for the tutor — deferred
+Pipeline, scoped to `(document_id, owner_id)`:
 
-The confidence-floor refusal behaviour, the mandatory `citations` array on every assistant
-message, and the "Explain beyond my notes" escape hatch are all tutor-chat concerns — see
-`ROADMAP.md` for when that phase starts. The summary feature built this phase already carries its
-own citations (chunk references validated against the document, per
-[08-ai-layer.md](08-ai-layer.md) §Structured output), so the grounding principle is applied now
-even though the full tutor contract isn't built yet.
+1. **Vector arm** — top 20 nearest chunks by pgvector cosine distance (`<=>`), `hnsw.ef_search=40`.
+2. **Lexical arm** — top 20 by Postgres full-text (`ts_rank_cd` over a generated `content_tsv`
+   column + GIN index, `plainto_tsquery('english', ?)`).
+3. **Fusion** — Reciprocal Rank Fusion, `k=60`, top 8 chunks proceed. A dedicated rerank stage
+   (the original spec's "RRF + rerank") is **not implemented** — RRF alone was judged sufficient
+   without an eval harness (Phase 3) to demonstrate a reranker earns its added latency/cost; see
+   `ROADMAP.md`.
+4. **Neighbour expansion** — each fused chunk's immediate `chunk_index ± 1` neighbours are pulled
+   in too (dedup, cap 16 total) so a citation's local context survives a chunk boundary.
+5. **Confidence floor** — best vector-arm cosine similarity `< 0.35` ⇒ the retrieved context is
+   too weak; the tutor refuses (as a normal chat message, not an HTTP error) rather than answering
+   from thin material, unless "explain beyond my notes" is on for that message.
+
+`RetrievalService` (in `rag.service`) is the published entry point; `tutor` never queries
+`chunk_embeddings`/`document_chunks` directly, per the cross-feature access rule in
+[01-architecture.md](01-architecture.md).
+
+## Grounding contract for the tutor
+
+Every assistant message carries a `citations` array (chunk id + page range + section path) and a
+`grounded` boolean. Citations are mechanical, not self-reported: retrieved chunks get a numbered
+manifest in the prompt, the model cites inline (`[1]`, `[2]`, …), and after the stream completes
+those markers are regex-extracted and mapped back to the fixed candidate list — an out-of-range
+marker is dropped, never "repaired," since this is free-form streamed text, not the JSON-mode
+repair loop [08-ai-layer.md](08-ai-layer.md) uses for summaries. The "explain beyond my notes"
+toggle (per-message) skips the confidence floor and permits general knowledge, with the system
+prompt requiring non-notes content to be flagged so a student can tell grounded from ungrounded at
+a glance. Full rationale for every number above: `/docs/DECISIONS.md`.

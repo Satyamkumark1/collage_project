@@ -1,10 +1,16 @@
 package com.studyflow.ai.groq;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.studyflow.ai.AiCompletionRequest;
 import com.studyflow.ai.AiCompletionResult;
 import com.studyflow.ai.AiProvider;
 import com.studyflow.jobs.domain.TransientJobException;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -15,6 +21,7 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Calls Groq's OpenAI-compatible chat completions endpoint (see specs/08-ai-layer.md). Nothing
@@ -33,9 +40,11 @@ public class GroqAiProvider implements AiProvider {
             Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
 
     private final RestClient restClient;
+    private final ObjectMapper objectMapper;
 
     public GroqAiProvider(@Value("${studyflow.ai.groq.api-key}") String apiKey,
-            @Value("${studyflow.ai.groq.base-url}") String baseUrl) {
+            @Value("${studyflow.ai.groq.base-url}") String baseUrl, ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(Duration.ofSeconds(10));
         requestFactory.setReadTimeout(Duration.ofSeconds(150));
@@ -52,22 +61,45 @@ public class GroqAiProvider implements AiProvider {
     record ResponseFormat(String type) {
     }
 
+    record StreamOptions(@JsonProperty("include_usage") boolean includeUsage) {
+    }
+
     record ChatCompletionRequestBody(
             String model,
             List<ChatMessage> messages,
             @JsonProperty("max_tokens") int maxTokens,
             double temperature,
-            @JsonProperty("response_format") ResponseFormat responseFormat) {
+            @JsonProperty("response_format") ResponseFormat responseFormat,
+            Boolean stream,
+            @JsonProperty("stream_options") StreamOptions streamOptions) {
     }
 
     record Choice(ChatMessage message, @JsonProperty("finish_reason") String finishReason) {
     }
 
+    // ignoreUnknown: parsed with the app's strict, Spring-managed ObjectMapper (see
+    // #consumeStream), unlike the other records above which go through RestClient's own lenient
+    // default converter — that strictness is meant for validating request DTOs from untrusted
+    // clients, not for an external API's response shape, which can add fields (Groq has sent
+    // "logprobs" on stream chunks that weren't modelled here) without notice.
+    @JsonIgnoreProperties(ignoreUnknown = true)
     record Usage(@JsonProperty("prompt_tokens") int promptTokens,
             @JsonProperty("completion_tokens") int completionTokens) {
     }
 
     record ChatCompletionResponseBody(List<Choice> choices, Usage usage, String model) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Delta(String role, String content) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record StreamChoice(Delta delta, @JsonProperty("finish_reason") String finishReason) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record StreamChunk(List<StreamChoice> choices, Usage usage, String model) {
     }
 
     @Override
@@ -77,7 +109,7 @@ public class GroqAiProvider implements AiProvider {
                 .toList();
         ResponseFormat responseFormat = request.jsonMode() ? new ResponseFormat("json_object") : null;
         ChatCompletionRequestBody body = new ChatCompletionRequestBody(request.model(), messages,
-                request.maxTokens(), request.temperature(), responseFormat);
+                request.maxTokens(), request.temperature(), responseFormat, false, null);
 
         long start = System.currentTimeMillis();
         ChatCompletionResponseBody response;
@@ -107,6 +139,111 @@ public class GroqAiProvider implements AiProvider {
         return new AiCompletionResult(content, choice.finishReason(),
                 usage == null ? 0 : usage.promptTokens(), usage == null ? 0 : usage.completionTokens(), latencyMs,
                 response.model());
+    }
+
+    /**
+     * Consumes Groq's OpenAI-compatible SSE stream directly off {@link RestClient#exchange} so
+     * tokens can be forwarded as they arrive, instead of {@code .retrieve()} buffering the whole
+     * body — the whole point of a browser-waited streamed reply (see specs/01-architecture.md).
+     * Never throws: every exit path (happy or not) reaches exactly one {@code listener} callback.
+     */
+    @Override
+    public void streamComplete(AiCompletionRequest request, StreamListener listener) {
+        List<ChatMessage> messages = request.messages().stream()
+                .map(m -> new ChatMessage(m.role(), m.content()))
+                .toList();
+        ChatCompletionRequestBody body = new ChatCompletionRequestBody(request.model(), messages,
+                request.maxTokens(), request.temperature(), null, true, new StreamOptions(true));
+
+        long start = System.currentTimeMillis();
+        try {
+            restClient.post()
+                    .uri("/chat/completions")
+                    .body(body)
+                    .exchange((req, resp) -> {
+                        consumeStream(resp, start, request.model(), listener);
+                        return null;
+                    });
+        } catch (ResourceAccessException e) {
+            listener.onError(new TransientJobException("Groq streaming call failed transiently", e));
+        } catch (RuntimeException e) {
+            listener.onError(e);
+        }
+    }
+
+    private void consumeStream(RestClient.RequestHeadersSpec.ConvertibleClientHttpResponse response, long start,
+            String requestedModel, StreamListener listener) throws IOException {
+        if (response.getStatusCode().is4xxClientError() || response.getStatusCode().is5xxServerError()) {
+            String errorBody = readAll(response.getBody());
+            boolean transientFailure = response.getStatusCode().value() == 429
+                    || response.getStatusCode().is5xxServerError();
+            RuntimeException error = transientFailure
+                    ? new TransientJobException("Groq streaming call failed transiently: " + errorBody)
+                    : new IllegalStateException("Groq streaming call failed (" + response.getStatusCode() + "): "
+                            + errorBody);
+            listener.onError(error);
+            return;
+        }
+
+        ThinkBlockFilter filter = new ThinkBlockFilter();
+        StringBuilder fullContent = new StringBuilder();
+        String finishReason = null;
+        Usage usage = null;
+        String streamedModel = null;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.getBody(),
+                StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (!line.startsWith("data:")) {
+                    continue;
+                }
+                String data = line.substring(5).strip();
+                if (data.equals("[DONE]")) {
+                    break;
+                }
+                if (data.isEmpty()) {
+                    continue;
+                }
+                StreamChunk chunk = objectMapper.readValue(data, StreamChunk.class);
+                if (chunk.model() != null && !chunk.model().isBlank()) {
+                    streamedModel = chunk.model();
+                }
+                if (chunk.usage() != null) {
+                    usage = chunk.usage();
+                }
+                if (chunk.choices() == null || chunk.choices().isEmpty()) {
+                    continue;
+                }
+                StreamChoice choice = chunk.choices().get(0);
+                if (choice.finishReason() != null) {
+                    finishReason = choice.finishReason();
+                }
+                String delta = choice.delta() != null ? choice.delta().content() : null;
+                if (delta == null || delta.isEmpty()) {
+                    continue;
+                }
+                fullContent.append(delta);
+                String visible = filter.accept(delta);
+                if (!visible.isEmpty()) {
+                    listener.onToken(visible);
+                }
+            }
+        }
+        String trailing = filter.finish();
+        if (!trailing.isEmpty()) {
+            listener.onToken(trailing);
+        }
+
+        long latencyMs = System.currentTimeMillis() - start;
+        String finalContent = stripReasoning(fullContent.toString());
+        String finalModel = streamedModel != null ? streamedModel : requestedModel;
+        listener.onComplete(new AiCompletionResult(finalContent, finishReason,
+                usage == null ? 0 : usage.promptTokens(), usage == null ? 0 : usage.completionTokens(), latencyMs,
+                finalModel));
+    }
+
+    private String readAll(InputStream in) throws IOException {
+        return new String(in.readAllBytes(), StandardCharsets.UTF_8);
     }
 
     private String stripReasoning(String content) {

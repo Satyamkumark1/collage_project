@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { getDocument, type DocumentResponse } from "../api/documents";
 import { listSummaries, requestSummary } from "../api/summaries";
@@ -50,7 +50,7 @@ export function DocumentDetail() {
       <div className="page">
         <div className="error-banner" role="alert">
           <strong>Couldn&apos;t load this document</strong>
-          <span>{documentQuery.error instanceof Error ? documentQuery.error.message : "Unknown error"}</span>
+          <span>{documentErrorMessageFor(documentQuery.error)}</span>
           <button type="button" className="button button-secondary" onClick={() => documentQuery.refetch()}>
             Retry
           </button>
@@ -91,6 +91,17 @@ export function DocumentDetail() {
         <div className="error-banner" role="alert">
           <strong>Ingestion failed — {doc.failureCode ?? "UNKNOWN_ERROR"}</strong>
           <span>{failureMessageFor(doc.failureCode)}</span>
+        </div>
+      )}
+
+      {doc.status === "READY" && (
+        <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+          <Link to={`/documents/${documentId}/tutor`} className="button button-secondary">
+            Ask the tutor
+          </Link>
+          <Link to={`/documents/${documentId}/key-points`} className="button button-secondary">
+            Key points
+          </Link>
         </div>
       )}
 
@@ -185,7 +196,21 @@ function summaryErrorMessageFor(error: unknown): string {
       case "QUOTA_AI_EXCEEDED":
         return "You've hit this month's AI generation limit.";
       default:
-        return error.message;
+        return "Something went wrong. Please try again.";
+    }
+  }
+  return "Something went wrong. Please try again.";
+}
+
+function documentErrorMessageFor(error: unknown): string {
+  if (error instanceof ApiError) {
+    switch (error.code) {
+      case "DOCUMENT_NOT_FOUND":
+        return "This document could not be found.";
+      case "AUTH_GUARDIAN_CONSENT_REQUIRED":
+        return "You do not have permission to view this document.";
+      default:
+        return "Something went wrong. Please try again.";
     }
   }
   return "Something went wrong. Please try again.";
