@@ -1,5 +1,6 @@
 package com.studyflow.jobs.service;
 
+import com.studyflow.common.error.ApiException;
 import com.studyflow.jobs.domain.AiJob;
 import com.studyflow.jobs.domain.TaskType;
 import com.studyflow.jobs.domain.TransientJobException;
@@ -91,6 +92,11 @@ public class JobDispatcher {
         } catch (TransientJobException e) {
             log.warn("Transient failure on job {}: {}", jobId, e.getMessage());
             lifecycleService.retryOrFail(jobId, "TRANSIENT_FAILURE", e.getMessage());
+        } catch (ApiException e) {
+            // Carries a stable ErrorCode (e.g. AI_SCHEMA_INVALID, AI_INSUFFICIENT_CONTEXT) —
+            // surface it as-is rather than collapsing to a generic HANDLER_ERROR.
+            log.warn("Job {} failed with {}: {}", jobId, e.code(), e.getMessage());
+            lifecycleService.markFailed(jobId, e.code().name(), e.getMessage());
         } catch (Exception e) {
             log.error("Job {} failed", jobId, e);
             lifecycleService.markFailed(jobId, "HANDLER_ERROR", e.getMessage());

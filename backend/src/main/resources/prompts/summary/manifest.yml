@@ -1,0 +1,8 @@
+purpose: summary
+version: 1
+modelClass: large-instruct
+requiredVariables: []
+outputSchemaRef: summary-v1
+maxInputTokens: 6000
+changelog: >
+  v1 — initial QUICK summary prompt (60-100 words, one paragraph, cited chunk ids).

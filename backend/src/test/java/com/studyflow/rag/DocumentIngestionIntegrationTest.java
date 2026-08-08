@@ -129,7 +129,8 @@ class DocumentIngestionIntegrationTest {
     }
 
     private AiJob awaitJobTerminal(UUID jobId) throws InterruptedException {
-        for (int i = 0; i < 100; i++) {
+        // Real Voyage API round-trip; generous bound to absorb normal network latency variance.
+        for (int i = 0; i < 150; i++) {
             AiJob job = aiJobRepository.findById(jobId).orElseThrow();
             if (job.getStatus() == JobStatus.SUCCEEDED || job.getStatus() == JobStatus.FAILED) {
                 return job;

@@ -45,6 +45,11 @@ studyflow:
       api-key: ${VOYAGE_API_KEY}
       base-url: https://api.voyageai.com/v1
       model: voyage-4-lite
+    groq:
+      api-key: ${GROQ_API_KEY}
+      base-url: https://api.groq.com/openai/v1
+      models:
+        summary: openai/gpt-oss-120b
 
 management:
   endpoints:
