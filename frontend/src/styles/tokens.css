@@ -1,0 +1,134 @@
+/*
+  "Answer Booklet" design system — see specs/11-frontend.md.
+  Visual world: the Indian examination answer script. Every colour has a job.
+*/
+
+:root {
+  --paper: #f7f7f4;
+  --sheet: #ffffff;
+  --rule: #dcdcd4;
+  --ink: #16213e;
+  --ink-60: rgba(22, 33, 62, 0.6);
+  --red-pen: #c8362c;
+  --highlight: #f5d547;
+  --check: #1f7a5c;
+
+  --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+  --font-body: "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --measure: 65ch;
+  --radius: 6px;
+  --focus-ring: 2px solid var(--ink);
+  --focus-ring-offset: 2px;
+}
+
+/* Dark mode is the desk lamp at 2am, not an inverted app — warm-shifted, not blue-black. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #14161a;
+    --sheet: #1c1e23;
+    --rule: #33353b;
+    --ink: #e8e4da;
+    --ink-60: rgba(232, 228, 218, 0.64);
+    --red-pen: #e0685d;
+    --highlight: #d9be3f;
+    --check: #4caf8a;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper: #14161a;
+  --sheet: #1c1e23;
+  --rule: #33353b;
+  --ink: #e8e4da;
+  --ink-60: rgba(232, 228, 218, 0.64);
+  --red-pen: #e0685d;
+  --highlight: #d9be3f;
+  --check: #4caf8a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 0 0 0.5em;
+}
+
+p {
+  margin: 0 0 1em;
+  max-width: var(--measure);
+}
+
+.numeral {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Respect prefers-reduced-motion globally. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Never outline: none — visible focus rings everywhere. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+button {
+  font-family: inherit;
+  font-size: 1rem;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+input,
+textarea {
+  font-family: inherit;
+  font-size: 1rem;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
