@@ -81,14 +81,37 @@ Phase detail and sequencing: [`specs/ROADMAP.md`](specs/ROADMAP.md).
 
 | Phase | Status | Date | Exit-criteria evidence |
 |---|---|---|---|
-| 0 — Session 0 (this doc, specs/, scaffolds) | In progress | 2026-08-08 | — |
-| 1 — Auth → Upload → Ingestion → Async Summary | Not started | — | — |
+| 0 — Session 0 (this doc, specs/, scaffolds) | Done | 2026-08-08 | `specs/` 17 files; `mvn compile` clean; `/actuator/health` → 200; `npm run build` clean. |
+| 1 — Auth → Upload → Ingestion → Async Summary | Done | 2026-08-08 | See below. |
 | 2 — Tutor chat + retrieval | Not started | — | — |
 | 3 — Batch study generation (MCQs/flashcards) + eval harness | Not started | — | — |
 | 4 — Quizzes | Not started | — | — |
 | 5 — Infra hardening (Cloudinary/Redis/Testcontainers/observability) | Not started | — | — |
 | 6 — Billing | Not started | — | — |
 | 7 — Planner, exports, admin | Not started | — | — |
+
+### Phase 1 exit-criteria evidence
+
+Full backend test suite green against real Postgres 15 + pgvector, real Groq, real Voyage AI
+(`cd backend && set -a && source .env && set +a && ./mvnw test` — 20 tests, 0 failures, including
+`ArchitectureTest`'s 5 tenancy rules and 3 integration tests that make real external API calls).
+Frontend: `tsc -b` strict-mode clean, `npm run build` clean.
+
+End-to-end, driven through the real browser UI (Playwright against the running dev servers, not
+just curl) — register → login → upload a real `.md` file → watched ingestion reach `READY` →
+clicked *Generate summary* → watched a real Groq-generated (`openai/gpt-oss-120b`), cited summary
+appear with a working "Sourced from your notes" rail → confirmed the document shows *Ready* back
+on the library list. No mocked step anywhere in the path — see the checkpoint commits for the
+redacted request/response evidence at each stage:
+
+- `db141f0` DB migration + job engine core (claim/dispatch/sweep, concurrency-tested)
+- `e938657` storage + upload (magic-byte sniffing, sha256 dedup)
+- `a61b4f7` ingestion pipeline + real Voyage embeddings (`vector(1024)`, dimension confirmed live)
+- `47ca568` Groq AI provider adapter + real cited summary generation
+- `6288aae` ArchUnit tenancy test (verified it actually catches a violation, not just that it passes)
+- `80ee948` frontend + UI states + accessibility pass (keyboard nav, focus rings, error states)
+
+Manual verification collection: [`docs/http/slice1.http`](../docs/http/slice1.http).
 
 Update this table at the end of every phase with real evidence (a command output or passing test),
 not a checkmark.
