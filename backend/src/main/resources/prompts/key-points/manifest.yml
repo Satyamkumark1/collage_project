@@ -1,0 +1,9 @@
+purpose: key-points
+version: 1
+modelClass: large-instruct
+requiredVariables: []
+outputSchemaRef: key-points-v1
+maxInputTokens: 6000
+changelog: >
+  v1 — initial key-points extraction prompt (concept/definition/formula/fact/date categories,
+  LaTeX preserved, per-point cited chunk ids).

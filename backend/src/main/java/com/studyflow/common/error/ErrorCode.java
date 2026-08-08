@@ -4,7 +4,8 @@ import org.springframework.http.HttpStatus;
 
 /**
  * Stable, machine-readable error codes the frontend switches on (see
- * specs/03-api-and-errors.md). Never render {@code detail} to a user — codes are what's
+ * specs/03-api-and-errors.md). Never render {@code detail} to a user — codes
+ * are what's
  * human-facing text gets keyed off of, on the frontend.
  */
 public enum ErrorCode {
@@ -33,11 +34,18 @@ public enum ErrorCode {
 
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST),
 
-    // Not in the original spec table — added for endpoints the table implies but doesn't
-    // spell out (GET/DELETE by id, unmapped routes). Logged here rather than silently: see
+    // Not in the original spec table — added for endpoints the table implies but
+    // doesn't
+    // spell out (GET/DELETE by id, unmapped routes). Logged here rather than
+    // silently: see
     // docs/DECISIONS.md.
     DOCUMENT_NOT_FOUND(HttpStatus.NOT_FOUND),
     SUMMARY_NOT_FOUND(HttpStatus.NOT_FOUND),
+    // Phase 2 (tutor chat) — same "GET/DELETE by id needs a not-found code" gap as
+    // the two above.
+    CONVERSATION_NOT_FOUND(HttpStatus.NOT_FOUND),
+    // Phase 3 (batch study generation) — same gap again.
+    KEY_POINTS_NOT_FOUND(HttpStatus.NOT_FOUND),
     NOT_FOUND(HttpStatus.NOT_FOUND),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR);
 

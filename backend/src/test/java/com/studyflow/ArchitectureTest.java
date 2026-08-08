@@ -7,7 +7,10 @@ import com.studyflow.ai.repo.AiCallRepository;
 import com.studyflow.jobs.repo.AiJobRepository;
 import com.studyflow.library.repo.DocumentRepository;
 import com.studyflow.rag.repo.DocumentChunkRepository;
+import com.studyflow.study.repo.KeyPointRepository;
 import com.studyflow.study.repo.SummaryRepository;
+import com.studyflow.tutor.repo.ConversationRepository;
+import com.studyflow.tutor.repo.MessageRepository;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
@@ -63,6 +66,24 @@ class ArchitectureTest {
             .should().callMethod(SummaryRepository.class, "findById", Object.class)
             .because("callers must use findByIdAndOwnerId instead — see specs/02-data-model.md");
 
+    @ArchTest
+    static final ArchRule keyPointRepositoryIsOwnerScoped = noClasses()
+            .that().resideOutsideOfPackage("com.studyflow.study.repo")
+            .should().callMethod(KeyPointRepository.class, "findById", Object.class)
+            .because("callers must use findByIdAndOwnerId instead — see specs/02-data-model.md");
+
+    @ArchTest
+    static final ArchRule conversationRepositoryIsOwnerScoped = noClasses()
+            .that().resideOutsideOfPackage("com.studyflow.tutor.repo")
+            .should().callMethod(ConversationRepository.class, "findById", Object.class)
+            .because("callers must use findByIdAndOwnerId instead — see specs/02-data-model.md");
+
+    @ArchTest
+    static final ArchRule messageRepositoryIsOwnerScoped = noClasses()
+            .that().resideOutsideOfPackage("com.studyflow.tutor.repo")
+            .should().callMethod(MessageRepository.class, "findById", Object.class)
+            .because("callers must use findByIdAndOwnerId instead — see specs/02-data-model.md");
+
     // The rules above only ban the unscoped escape hatch; they don't verify the scoped
     // replacement actually exists. Without this, a repository could lose findByIdAndOwnerId
     // entirely (e.g. during a refactor) and every rule above would still pass.
@@ -97,6 +118,27 @@ class ArchitectureTest {
     @ArchTest
     static final ArchRule summaryRepositoryDeclaresOwnerScopedFinder = classes()
             .that().areAssignableTo(SummaryRepository.class)
+            .should(declareOwnerScopedFindById())
+            .because("owner-scoped repositories must expose findByIdAndOwnerId(UUID, UUID) — see "
+                    + "specs/02-data-model.md");
+
+    @ArchTest
+    static final ArchRule keyPointRepositoryDeclaresOwnerScopedFinder = classes()
+            .that().areAssignableTo(KeyPointRepository.class)
+            .should(declareOwnerScopedFindById())
+            .because("owner-scoped repositories must expose findByIdAndOwnerId(UUID, UUID) — see "
+                    + "specs/02-data-model.md");
+
+    @ArchTest
+    static final ArchRule conversationRepositoryDeclaresOwnerScopedFinder = classes()
+            .that().areAssignableTo(ConversationRepository.class)
+            .should(declareOwnerScopedFindById())
+            .because("owner-scoped repositories must expose findByIdAndOwnerId(UUID, UUID) — see "
+                    + "specs/02-data-model.md");
+
+    @ArchTest
+    static final ArchRule messageRepositoryDeclaresOwnerScopedFinder = classes()
+            .that().areAssignableTo(MessageRepository.class)
             .should(declareOwnerScopedFindById())
             .because("owner-scoped repositories must expose findByIdAndOwnerId(UUID, UUID) — see "
                     + "specs/02-data-model.md");

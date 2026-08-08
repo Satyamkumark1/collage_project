@@ -15,7 +15,7 @@ import org.springframework.test.context.junit.jupiter.SpringExtension;
 public class DatabaseCleanerExtension implements AfterEachCallback {
 
     private static final String TRUNCATE_SQL = "TRUNCATE TABLE ai_jobs, documents, refresh_tokens, "
-            + "usage_counters, users RESTART IDENTITY CASCADE";
+            + "usage_counters, messages, conversations, users RESTART IDENTITY CASCADE";
 
     @Override
     public void afterEach(ExtensionContext context) {

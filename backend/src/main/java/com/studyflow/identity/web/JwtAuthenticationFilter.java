@@ -24,6 +24,22 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         this.jwtService = jwtService;
     }
 
+    /**
+     * Tutor chat's SSE response completes on a background thread (see
+     * {@code TutorChatController}), which re-enters the filter chain as an ASYNC dispatch on a
+     * different servlet container thread than the one that originally ran this filter. {@code
+     * SecurityContextHolder}'s ThreadLocal doesn't carry over, so without this override Spring
+     * Security's own {@code AuthorizationFilter} (which, unlike this filter, does re-run on ASYNC
+     * dispatch) finds no {@code Authentication} on that thread and rejects the otherwise-successful
+     * response with {@code AuthorizationDeniedException}. Re-reading the same request's
+     * {@code Authorization} header again here is cheap and correct — it's the same
+     * {@code HttpServletRequest}, carrying the same header, regardless of dispatch phase.
+     */
+    @Override
+    protected boolean shouldNotFilterAsyncDispatch() {
+        return false;
+    }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {

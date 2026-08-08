@@ -6,6 +6,8 @@ import { Login } from "./pages/Login";
 import { Library } from "./pages/Library";
 import { Upload } from "./pages/Upload";
 import { DocumentDetail } from "./pages/DocumentDetail";
+import { Tutor } from "./pages/Tutor";
+import { KeyPoints } from "./pages/KeyPoints";
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { status } = useAuth();
@@ -81,6 +83,22 @@ export default function App() {
           element={
             <ProtectedRoute>
               <DocumentDetail />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/documents/:id/tutor"
+          element={
+            <ProtectedRoute>
+              <Tutor />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/documents/:id/key-points"
+          element={
+            <ProtectedRoute>
+              <KeyPoints />
             </ProtectedRoute>
           }
         />

@@ -1,7 +1,7 @@
 // Hand-written client for the handful of endpoints in play this phase — see
 // specs/11-frontend.md. Worth generating from OpenAPI once the surface grows.
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080/api/v1";
+export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080/api/v1";
 
 // Access token lives in memory only, per specs/04-identity-and-security.md — never persisted,
 // so a full page reload always goes through the refresh-cookie flow in AuthContext.

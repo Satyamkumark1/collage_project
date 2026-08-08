@@ -101,7 +101,7 @@ function errorMessageFor(error: unknown): string {
       case "QUOTA_UPLOADS_EXCEEDED":
         return "You've hit this month's upload limit.";
       default:
-        return error.message;
+        return "Something went wrong. Please try again.";
     }
   }
   return "Something went wrong. Please try again.";

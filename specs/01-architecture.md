@@ -4,13 +4,13 @@
 
 ```
 Browser (React 19 SPA)
-   │  HTTPS/JSON  ·  SSE for streams (deferred)
+   │  HTTPS/JSON  ·  SSE for tutor chat
    ▼
-Spring Boot 3.x monolith
+Spring Boot 4.0.7 monolith
    ├─ web layer      controllers, DTO validation, auth filter, rate limiter
    ├─ domain layer    services, policy checks, quota enforcement
    ├─ ai layer         provider adapter, prompt registry, schema validation, cost ledger
-   ├─ rag layer        parse → chunk → embed → store (retrieval deferred)
+   ├─ rag layer        parse → chunk → embed → store → hybrid retrieval
    ├─ job layer        DB-backed queue + in-process worker pool
    └─ data layer       JPA repositories, Flyway migrations
    │
@@ -30,7 +30,7 @@ rewriting code.
 | Path | Mode | Budget |
 |---|---|---|
 | Auth, CRUD, listing | Synchronous | p95 < 300ms |
-| Tutor chat (deferred) | Streaming SSE | First token < 2.5s |
+| Tutor chat | Streaming SSE | First token < 2.5s |
 | Summary, key points, MCQs, flashcards, quiz build, study plan | **Async job** | Enqueue < 150ms; job completes 20–180s |
 | Document ingestion (parse → chunk → embed) | **Async job** | 10–90s depending on page count |
 
@@ -54,9 +54,9 @@ com.studyflow
 ├── billing/       plans, subscriptions, quotas, webhooks, usage meter        [deferred]
 ├── library/       documents, upload, storage adapter, parsing, ingestion jobs
 ├── ai/            provider adapter, prompt registry, schema validation, cost ledger
-├── rag/           chunking, embedding, vector store, (retrieval — deferred)
+├── rag/           chunking, embedding, vector store, hybrid retrieval
 ├── study/         summaries (this phase); key points/flashcards/mcqs/quizzes [deferred]
-├── tutor/         conversations, messages, streaming                          [deferred]
+├── tutor/         conversations, messages, streaming
 ├── planner/       study plans, sessions, calendar export                      [deferred]
 ├── exports/       PDF/DOCX rendering                                          [deferred]
 ├── jobs/          queue, worker pool, sweeper, progress

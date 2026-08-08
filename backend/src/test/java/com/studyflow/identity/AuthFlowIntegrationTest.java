@@ -8,6 +8,12 @@ import com.studyflow.identity.dto.MeResponse;
 import com.studyflow.identity.dto.RegisterRequest;
 import com.studyflow.identity.dto.RegisterResponse;
 import com.studyflow.support.DatabaseCleanerExtension;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,12 +24,18 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 @ExtendWith(DatabaseCleanerExtension.class)
 class AuthFlowIntegrationTest {
+
+    private final JsonMapper objectMapper = JsonMapper.builder().build();
 
     @Autowired
     private TestRestTemplate restTemplate;
@@ -82,6 +94,65 @@ class AuthFlowIntegrationTest {
         ResponseEntity<String> deadResponse = restTemplate.exchange("/api/v1/auth/refresh", HttpMethod.POST,
                 new HttpEntity<>(rotatedHeaders), String.class);
         assertThat(deadResponse.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    /**
+     * Regression test for a real race found via manual browser testing (two tabs, or a page
+     * reload firing a silent-refresh while an earlier one is still in flight, both present the
+     * same cookie): the loser must get a clean 401 AUTH_REFRESH_REUSED, never an unhandled 500 —
+     * see RefreshTokenService.rotate/revokeFamily's comments for the underlying Hibernate-session
+     * and Spring-AOP-self-invocation causes and fixes.
+     */
+    @Test
+    void concurrentRefreshWithTheSameCookieNeverProducesA500() throws InterruptedException {
+        String email = "race" + System.nanoTime() + "@example.com";
+        restTemplate.postForEntity("/api/v1/auth/register",
+                new RegisterRequest(email, "correct horse battery", "Race User", (short) 2000), RegisterResponse.class);
+        ResponseEntity<AccessTokenResponse> loginResponse = restTemplate.postForEntity("/api/v1/auth/login",
+                new LoginRequest(email, "correct horse battery"), AccessTokenResponse.class);
+        String setCookie = loginResponse.getHeaders().getFirst(HttpHeaders.SET_COOKIE);
+
+        HttpHeaders refreshHeaders = new HttpHeaders();
+        refreshHeaders.add(HttpHeaders.COOKIE, cookiePair(setCookie));
+        refreshHeaders.add("X-Request-Id", "race-" + System.nanoTime());
+        HttpEntity<Void> request = new HttpEntity<>(refreshHeaders);
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch go = new CountDownLatch(1);
+        try {
+            List<Future<ResponseEntity<String>>> futures = List.of(
+                    executor.submit(() -> fireAfterBothReady(ready, go, request)),
+                    executor.submit(() -> fireAfterBothReady(ready, go, request)));
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            go.countDown();
+
+            ResponseEntity<String> firstResponse = futures.get(0).get(10, TimeUnit.SECONDS);
+            ResponseEntity<String> secondResponse = futures.get(1).get(10, TimeUnit.SECONDS);
+            List<HttpStatusCode> statuses = List.of(firstResponse.getStatusCode(), secondResponse.getStatusCode());
+            assertThat(statuses).allMatch(status -> status.equals(HttpStatus.OK) || status.equals(HttpStatus.UNAUTHORIZED),
+                    "neither concurrent refresh may ever return a 500");
+            assertThat(statuses).contains(HttpStatus.OK);
+            assertThat(statuses).contains(HttpStatus.UNAUTHORIZED);
+
+            ResponseEntity<String> unauthorizedResponse = firstResponse.getStatusCode().equals(HttpStatus.UNAUTHORIZED)
+                    ? firstResponse
+                    : secondResponse;
+            assertThat(unauthorizedResponse.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_PROBLEM_JSON);
+            JsonNode problem = objectMapper.readTree(unauthorizedResponse.getBody());
+            assertThat(problem.get("code").asText()).isEqualTo("AUTH_REFRESH_REUSED");
+        } catch (Exception e) {
+            throw new AssertionError("Concurrent refresh requests failed unexpectedly", e);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private ResponseEntity<String> fireAfterBothReady(CountDownLatch ready, CountDownLatch go, HttpEntity<Void> request)
+            throws InterruptedException {
+        ready.countDown();
+        go.await(5, TimeUnit.SECONDS);
+        return restTemplate.exchange("/api/v1/auth/refresh", HttpMethod.POST, request, String.class);
     }
 
     @Test

@@ -12,8 +12,10 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -27,9 +29,16 @@ public class RefreshTokenService {
 
     private final SecureRandom random = new SecureRandom();
     private final RefreshTokenRepository repository;
+    // Self-injected (via a lazily-resolved proxy) so rotate()'s call to revokeFamily goes back
+    // through the Spring AOP proxy instead of a plain `this.`/bare call — a same-instance call
+    // bypasses proxy-based @Transactional entirely, which would silently turn revokeFamily's
+    // REQUIRES_NEW into "just joins whatever transaction rotate() happened to have," defeating
+    // the fresh-Hibernate-session isolation it depends on (same pattern as JobLifecycleService).
+    private final RefreshTokenService self;
 
-    public RefreshTokenService(RefreshTokenRepository repository) {
+    public RefreshTokenService(RefreshTokenRepository repository, @Lazy RefreshTokenService self) {
         this.repository = repository;
+        this.self = self;
     }
 
     public record IssuedToken(String rawValue, RefreshToken entity) {
@@ -40,11 +49,14 @@ public class RefreshTokenService {
         return issue(userId, UUID.randomUUID(), userAgentHash, ipHash);
     }
 
-    // noRollbackFor mirrors AuthService.refresh's own reuse-detection branch: the catch block
-    // below deliberately persists a family revocation and then throws to reject the request —
-    // without this, rotate()'s own transaction interceptor would mark the shared transaction
-    // rollback-only on that throw and silently discard the revocation.
-    @Transactional(noRollbackFor = ApiException.class)
+    // Plain @Transactional (no noRollbackFor): unlike an earlier version of this method, the
+    // catch block's revocation now persists via revokeFamily's own REQUIRES_NEW transaction —
+    // independent of whatever happens to this one — so this transaction rolling back on the
+    // ApiException below is not only safe but necessary: it discards the just-issued `next`
+    // child token (issue() below already inserted it before the failing flush), rather than
+    // committing an orphaned, unrevoked, still-valid token that revokeFamily's separate,
+    // concurrently-running transaction can't see yet (it wouldn't be committed at that point).
+    @Transactional
     public IssuedToken rotate(RefreshToken current, String userAgentHash, String ipHash) {
         IssuedToken next = issue(current.getUserId(), current.getFamilyId(), userAgentHash, ipHash);
         current.revoke(next.entity().getId());
@@ -53,10 +65,15 @@ public class RefreshTokenService {
         } catch (ObjectOptimisticLockingFailureException e) {
             // Another request already rotated this exact token concurrently (read the same
             // version, raced to write it) — without this check both would succeed and mint two
-            // live children from one parent. Revoke the whole family (which also catches the
-            // `next` token just issued above) and surface reuse detection instead of returning
-            // a second live session.
-            revokeFamily(current.getFamilyId(), current.getUserId());
+            // live children from one parent. revokeFamily runs in its own fresh transaction
+            // (see its @Transactional below) rather than joining this method's: the saveAndFlush
+            // above already forced Hibernate to flush a batch that failed mid-flight, which
+            // leaves this persistence context unreliable for further writes — reusing it here
+            // previously re-threw the same ObjectOptimisticLockingFailureException from inside
+            // revokeFamily's own save, past this catch, as an unhandled 500 instead of the
+            // intended 401 AUTH_REFRESH_REUSED (reproduced with two concurrent real
+            // /auth/refresh calls sharing one cookie before this fix).
+            self.revokeFamily(current.getFamilyId(), current.getUserId());
             throw new ApiException(ErrorCode.AUTH_REFRESH_REUSED, "Concurrent refresh detected; session revoked");
         }
         return next;
@@ -67,7 +84,7 @@ public class RefreshTokenService {
         return repository.findByTokenHash(hash(raw));
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void revokeFamily(UUID familyId, UUID userId) {
         List<RefreshToken> active = repository.findByFamilyIdAndUserIdAndRevokedAtIsNull(familyId, userId);
         for (RefreshToken token : active) {

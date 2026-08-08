@@ -10,7 +10,8 @@ import java.util.UUID;
  */
 public interface ChunkQueryService {
 
-    record ChunkView(UUID id, String content, int tokenCount) {
+    record ChunkView(UUID id, String content, int tokenCount, int chunkIndex, Integer pageFrom, Integer pageTo,
+            String sectionPath) {
     }
 
     /** Owner-scoped, in stored (chunk_index) order. */
