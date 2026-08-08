@@ -85,7 +85,7 @@ Phase detail and sequencing: [`specs/ROADMAP.md`](specs/ROADMAP.md).
 | 0 — Session 0 (this doc, specs/, scaffolds) | Done | 2026-08-08 | `specs/` 17 files; `mvn compile` clean; `/actuator/health` → 200; `npm run build` clean. |
 | 1 — Auth → Upload → Ingestion → Async Summary | Done | 2026-08-08 | See below. |
 | 2 — Tutor chat + retrieval | Done | 2026-08-08 | See below. |
-| 3 — Batch study generation (MCQs/flashcards) + eval harness | Not started | — | — |
+| 3 — Batch study generation (MCQs/flashcards) + eval harness | Checkpoint 15 complete; later checkpoints pending | 2026-08-09 | See `docs/status/phase-3.md`; `KeyPointGenerationIntegrationTest` passes in isolation. |
 | 4 — Quizzes | Not started | — | — |
 | 5 — Infra hardening (Cloudinary/Redis/Testcontainers/observability) | Not started | — | — |
 | 6 — Billing | Not started | — | — |

@@ -10,7 +10,7 @@ completion evidence — not a checkmark. Phase sequencing and scope detail live 
 | [0 — Session 0](phase-0.md) | ✅ Done |
 | [1 — Auth → Upload → Ingestion → Async Summary](phase-1.md) | ✅ Done |
 | [2 — Tutor chat + retrieval](phase-2.md) | ✅ Done |
-| [3 — Batch study generation (MCQs/flashcards) + eval harness](phase-3.md) | ⬜ Not started |
+| [3 — Batch study generation (MCQs/flashcards) + eval harness](phase-3.md) | 🟨 Checkpoint 15 complete; later checkpoints pending |
 | [4 — Quizzes](phase-4.md) | ⬜ Not started |
 | [5 — Infra hardening](phase-5.md) | ⬜ Not started |
 | [6 — Billing](phase-6.md) | ⬜ Not started |
