@@ -114,7 +114,8 @@ class DocumentIngestionIntegrationTest {
         assertThat(documentResponse.getBody().status()).isEqualTo("READY");
         assertThat(documentResponse.getBody().charCount()).isGreaterThan(0);
 
-        var chunks = chunkRepository.findByDocumentIdOrderByChunkIndexAsc(documentId);
+        var chunks = chunkRepository.findByDocumentIdAndOwnerIdOrderByChunkIndexAsc(documentId,
+                finishedJob.getOwnerId());
         assertThat(chunks).isNotEmpty();
         assertThat(chunks.get(0).getContent()).isNotBlank();
 

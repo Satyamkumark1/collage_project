@@ -147,7 +147,7 @@ class JobDispatcherIntegrationTest {
 
         ExecutorService pool = Executors.newFixedThreadPool(2);
         CountDownLatch go = new CountDownLatch(1);
-        List<Future<Optional<UUID>>> futures = List.of(
+        List<Future<Optional<AiJobClaimDao.ClaimedJob>>> futures = List.of(
                 pool.submit(() -> {
                     go.await();
                     return claimDao.claimNextJobId();
@@ -159,12 +159,15 @@ class JobDispatcherIntegrationTest {
         go.countDown();
 
         long winners = 0;
-        for (Future<Optional<UUID>> future : futures) {
-            if (future.get(5, TimeUnit.SECONDS).isPresent()) {
-                winners++;
+        try {
+            for (Future<Optional<AiJobClaimDao.ClaimedJob>> future : futures) {
+                if (future.get(5, TimeUnit.SECONDS).isPresent()) {
+                    winners++;
+                }
             }
+        } finally {
+            pool.shutdown();
         }
-        pool.shutdown();
 
         assertThat(winners).isEqualTo(1);
         AiJob claimed = jobRepository.findById(job.getId()).orElseThrow();

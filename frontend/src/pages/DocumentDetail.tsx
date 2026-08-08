@@ -90,7 +90,7 @@ export function DocumentDetail() {
       {doc.status === "FAILED" && (
         <div className="error-banner" role="alert">
           <strong>Ingestion failed — {doc.failureCode ?? "UNKNOWN_ERROR"}</strong>
-          <span>{failureMessageFor(doc.failureCode) ?? doc.failureDetail ?? "Please try uploading again."}</span>
+          <span>{failureMessageFor(doc.failureCode)}</span>
         </div>
       )}
 
@@ -134,6 +134,16 @@ export function DocumentDetail() {
             <div className="skeleton" style={{ height: 80 }} aria-busy="true" aria-live="polite" />
           )}
 
+          {summariesQuery.isError && (
+            <div className="error-banner" role="alert">
+              <strong>Couldn&apos;t load summaries</strong>
+              <span>Something went wrong. Please try again.</span>
+              <button type="button" className="button button-secondary" onClick={() => summariesQuery.refetch()}>
+                Retry
+              </button>
+            </div>
+          )}
+
           {summariesQuery.data && summariesQuery.data.length === 0 && !activeSummaryJobId && (
             <p className="hint">No summary yet — generate one above.</p>
           )}
@@ -150,7 +160,7 @@ export function DocumentDetail() {
   );
 }
 
-function failureMessageFor(code: string | null): string | null {
+function failureMessageFor(code: string | null): string {
   switch (code) {
     case "FILE_ENCRYPTED":
       return "This PDF is password-protected. Remove the password and upload it again.";
@@ -158,8 +168,10 @@ function failureMessageFor(code: string | null): string | null {
       return "This looks like a scanned image with no selectable text — OCR isn't supported yet.";
     case "FILE_CORRUPT":
       return "This file couldn't be read. It may be corrupted — try re-exporting it.";
+    case "STORAGE_READ_ERROR":
+      return "We couldn't read your uploaded file from storage. Please try uploading again.";
     default:
-      return null;
+      return "Please try uploading again.";
   }
 }
 

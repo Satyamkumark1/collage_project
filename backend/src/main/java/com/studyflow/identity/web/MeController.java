@@ -24,7 +24,7 @@ public class MeController {
     @GetMapping
     public MeResponse me(Authentication authentication) {
         UUID userId = UUID.fromString(authentication.getName());
-        User user = userRepository.findById(userId)
+        User user = userRepository.findByIdAndDeletedAtIsNull(userId)
                 .orElseThrow(() -> new ApiException(ErrorCode.AUTH_TOKEN_EXPIRED, "User no longer exists"));
         boolean isMinor = user.isMinor();
         return new MeResponse(user.getId(), user.getEmail(), user.getName(), user.getRole().name(),

@@ -3,8 +3,8 @@ package com.studyflow.study.web;
 import com.studyflow.common.error.ApiException;
 import com.studyflow.common.error.ErrorCode;
 import com.studyflow.identity.domain.User;
-import com.studyflow.identity.repo.UserRepository;
 import com.studyflow.identity.service.DpdpGuard;
+import com.studyflow.identity.service.IdentityService;
 import com.studyflow.jobs.domain.AiJob;
 import com.studyflow.jobs.domain.TaskType;
 import com.studyflow.jobs.service.JobEnqueueService;
@@ -34,17 +34,17 @@ public class SummaryController {
 
     private final DocumentRepository documentRepository;
     private final SummaryRepository summaryRepository;
-    private final UserRepository userRepository;
+    private final IdentityService identityService;
     private final JobEnqueueService jobEnqueueService;
     private final DpdpGuard dpdpGuard;
     private final ObjectMapper objectMapper;
 
     public SummaryController(DocumentRepository documentRepository, SummaryRepository summaryRepository,
-            UserRepository userRepository, JobEnqueueService jobEnqueueService, DpdpGuard dpdpGuard,
+            IdentityService identityService, JobEnqueueService jobEnqueueService, DpdpGuard dpdpGuard,
             ObjectMapper objectMapper) {
         this.documentRepository = documentRepository;
         this.summaryRepository = summaryRepository;
-        this.userRepository = userRepository;
+        this.identityService = identityService;
         this.jobEnqueueService = jobEnqueueService;
         this.dpdpGuard = dpdpGuard;
         this.objectMapper = objectMapper;
@@ -90,7 +90,6 @@ public class SummaryController {
     }
 
     private User currentUser(UUID userId) {
-        return userRepository.findById(userId)
-                .orElseThrow(() -> new ApiException(ErrorCode.AUTH_TOKEN_EXPIRED, "User no longer exists"));
+        return identityService.requireActiveUser(userId);
     }
 }

@@ -1,10 +1,13 @@
 package com.studyflow.study.service;
 
+import com.studyflow.common.error.ApiException;
+import com.studyflow.common.error.ErrorCode;
 import com.studyflow.jobs.domain.AiJob;
 import com.studyflow.jobs.domain.TaskType;
 import com.studyflow.jobs.service.JobHandler;
 import com.studyflow.jobs.service.ProgressReporter;
 import com.studyflow.study.domain.Summary;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -29,12 +32,16 @@ public class SummaryGenerateHandler implements JobHandler {
     @Override
     public String handle(AiJob job, ProgressReporter progress) throws Exception {
         JsonNode params = objectMapper.readTree(job.getParamsJson());
-        UUID documentId = UUID.fromString(params.get("documentId").asString());
+        JsonNode documentIdNode = params.path("documentId");
+        if (!documentIdNode.isString()) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED, "Job params missing a textual documentId");
+        }
+        UUID documentId = UUID.fromString(documentIdNode.asString());
 
         progress.report(10, "GENERATING");
         Summary summary = summaryGenerationService.generate(documentId, job.getOwnerId(), job.getId());
         progress.report(100, "DONE");
 
-        return "{\"summaryId\":\"" + summary.getId() + "\"}";
+        return objectMapper.writeValueAsString(Map.of("summaryId", summary.getId().toString()));
     }
 }

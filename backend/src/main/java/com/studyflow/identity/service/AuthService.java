@@ -7,7 +7,10 @@ import com.studyflow.identity.domain.User;
 import com.studyflow.identity.dto.RegisterRequest;
 import com.studyflow.identity.repo.UserRepository;
 import java.time.Instant;
+import java.time.Year;
+import java.time.ZoneId;
 import java.util.UUID;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,6 +41,10 @@ public class AuthService {
 
     @Transactional
     public User register(RegisterRequest request) {
+        int currentYear = Year.now(ZoneId.of("Asia/Kolkata")).getValue();
+        if (request.birthYear() > currentYear) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED, "birthYear cannot be in the future");
+        }
         userRepository.findByEmailAndDeletedAtIsNull(request.email()).ifPresent(existing -> {
             throw new ApiException(ErrorCode.AUTH_EMAIL_ALREADY_REGISTERED, "Email is already registered");
         });
@@ -45,7 +52,15 @@ public class AuthService {
                 request.birthYear());
         // Deviation: no SMTP provider this phase, auto-verify at registration. See docs/DECISIONS.md.
         user.setEmailVerifiedAt(Instant.now());
-        return userRepository.save(user);
+        try {
+            return userRepository.save(user);
+        } catch (DataIntegrityViolationException e) {
+            // The findByEmailAndDeletedAtIsNull check above isn't atomic with this insert —
+            // two concurrent registrations for the same email can both pass it and race to
+            // users_email_unique_idx. Whichever loses gets a clean conflict, not a raw
+            // constraint-violation 500.
+            throw new ApiException(ErrorCode.AUTH_EMAIL_ALREADY_REGISTERED, "Email is already registered");
+        }
     }
 
     public record LoginResult(User user, String accessToken, String rawRefreshToken) {
@@ -78,14 +93,14 @@ public class AuthService {
                 .orElseThrow(() -> new ApiException(ErrorCode.AUTH_TOKEN_EXPIRED, "Refresh token not recognised"));
 
         if (current.isRevoked()) {
-            refreshTokenService.revokeFamily(current.getFamilyId());
+            refreshTokenService.revokeFamily(current.getFamilyId(), current.getUserId());
             throw new ApiException(ErrorCode.AUTH_REFRESH_REUSED, "Refresh token reuse detected; session revoked");
         }
         if (current.isExpired()) {
             throw new ApiException(ErrorCode.AUTH_TOKEN_EXPIRED, "Refresh token expired");
         }
 
-        User user = userRepository.findById(current.getUserId())
+        User user = userRepository.findByIdAndDeletedAtIsNull(current.getUserId())
                 .orElseThrow(() -> new ApiException(ErrorCode.AUTH_TOKEN_EXPIRED, "User no longer exists"));
 
         RefreshTokenService.IssuedToken next = refreshTokenService.rotate(current, userAgentHash, ipHash);
@@ -96,6 +111,6 @@ public class AuthService {
     @Transactional
     public void logout(String rawRefreshToken) {
         refreshTokenService.findByRawValue(rawRefreshToken)
-                .ifPresent(token -> refreshTokenService.revokeFamily(token.getFamilyId()));
+                .ifPresent(token -> refreshTokenService.revokeFamily(token.getFamilyId(), token.getUserId()));
     }
 }

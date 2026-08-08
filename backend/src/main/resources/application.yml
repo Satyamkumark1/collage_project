@@ -28,10 +28,11 @@ studyflow:
   cors:
     allowed-origin: ${CORS_ALLOWED_ORIGIN}
   cookie:
-    # Local-dev deviation: Secure+SameSite=None don't work over plain http://localhost.
-    # A prod profile would flip these to true/None. See docs/DECISIONS.md.
-    secure: false
-    same-site: Lax
+    # Secure defaults for this base config (used as-is in prod). Local dev runs with the
+    # `local` profile active (see application-local.yml, run-dev.sh) which overrides these to
+    # work over plain http://localhost. See docs/DECISIONS.md.
+    secure: true
+    same-site: Strict
     refresh-ttl-days: 30
   storage:
     local-root: ${STORAGE_LOCAL_ROOT}

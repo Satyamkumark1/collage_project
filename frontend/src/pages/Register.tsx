@@ -18,13 +18,24 @@ export function Register() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
+
+    // noValidate on the form below skips native required/min/max checks (needed so our own
+    // error banner renders instead of the browser's), so an empty or out-of-range birth year
+    // must be caught here before it reaches the API.
+    const birthYearNumber = Number(birthYear);
+    if (!birthYear || !Number.isInteger(birthYearNumber) || birthYearNumber < 1900
+        || birthYearNumber > CURRENT_YEAR) {
+      setError(`Please enter a birth year between 1900 and ${CURRENT_YEAR}.`);
+      return;
+    }
+
     setSubmitting(true);
     try {
-      await register(email, password, name, Number(birthYear));
+      await register(email, password, name, birthYearNumber);
       navigate("/login", { state: { justRegistered: true } });
     } catch (err) {
       if (err instanceof ApiError) {
-        setError(errorMessageFor(err.code, err.message));
+        setError(errorMessageFor(err.code));
       } else {
         setError("Something went wrong. Please try again.");
       }
@@ -118,13 +129,13 @@ export function Register() {
   );
 }
 
-function errorMessageFor(code: string, fallback: string): string {
+function errorMessageFor(code: string): string {
   switch (code) {
     case "AUTH_EMAIL_ALREADY_REGISTERED":
       return "That email is already registered. Try logging in instead.";
     case "VALIDATION_FAILED":
       return "Please check the fields above and try again.";
     default:
-      return fallback;
+      return "Something went wrong. Please try again.";
   }
 }

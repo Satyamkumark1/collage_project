@@ -83,9 +83,16 @@ public class User {
         this.birthYear = birthYear;
     }
 
+    /**
+     * Only the birth year is collected, not a full date of birth, so the exact birthday within
+     * that year is unknown. A user whose birth-year difference is exactly 18 may not have had
+     * their birthday yet this calendar year — treat them as a minor through the end of that
+     * anniversary year rather than assuming the birthday has already passed, so the DPDP consent
+     * gate never under-triggers.
+     */
     public boolean isMinor() {
         int age = Year.now(ZoneId.of("Asia/Kolkata")).getValue() - birthYear;
-        return age < 18;
+        return age <= 18;
     }
 
     public boolean hasGuardianConsent() {

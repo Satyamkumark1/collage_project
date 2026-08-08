@@ -1,0 +1,7 @@
+studyflow:
+  cookie:
+    # Local-dev deviation: Secure+SameSite=Strict don't work over plain http://localhost with
+    # the frontend on a different port. Activated by run-dev.sh via -Dspring-boot.run.profiles=local.
+    # See docs/DECISIONS.md.
+    secure: false
+    same-site: Lax

@@ -2,10 +2,14 @@ package com.studyflow.rag.service;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.studyflow.jobs.domain.TransientJobException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
@@ -29,8 +33,12 @@ public class VoyageEmbeddingClient implements EmbeddingClient {
             @Value("${studyflow.ai.voyage.base-url}") String baseUrl,
             @Value("${studyflow.ai.voyage.model}") String model) {
         this.model = model;
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(Duration.ofSeconds(10));
+        requestFactory.setReadTimeout(Duration.ofSeconds(60));
         this.restClient = RestClient.builder()
                 .baseUrl(baseUrl)
+                .requestFactory(requestFactory)
                 .defaultHeader("Authorization", "Bearer " + apiKey)
                 .build();
     }
@@ -85,7 +93,19 @@ public class VoyageEmbeddingClient implements EmbeddingClient {
         if (response == null || response.data() == null) {
             throw new TransientJobException("Voyage returned an empty response");
         }
-        return response.data().stream()
+        List<EmbeddingResponse.EmbeddingData> data = response.data();
+        if (data.size() != batch.size()) {
+            throw new TransientJobException(
+                    "Voyage returned " + data.size() + " embeddings for a batch of " + batch.size());
+        }
+        Set<Integer> seenIndexes = new HashSet<>();
+        for (EmbeddingResponse.EmbeddingData item : data) {
+            if (item.index() < 0 || item.index() >= batch.size() || !seenIndexes.add(item.index())) {
+                throw new TransientJobException("Voyage returned an out-of-range or duplicate embedding index: "
+                        + item.index());
+            }
+        }
+        return data.stream()
                 .sorted(Comparator.comparingInt(EmbeddingResponse.EmbeddingData::index))
                 .map(this::toFloatArray)
                 .toList();

@@ -15,6 +15,16 @@ export function getAccessToken(): string | null {
   return accessToken;
 }
 
+// AuthProvider registers itself here so a failed silent-refresh (the session cookie is gone
+// or expired) can reset in-memory auth state immediately, instead of leaving `status:
+// "authenticated"` stale until the next unrelated 401 — protected routes rely on `status`
+// flipping to "unauthenticated" to unmount.
+let onSessionExpired: (() => void) | null = null;
+
+export function setOnSessionExpired(callback: (() => void) | null): void {
+  onSessionExpired = callback;
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -37,7 +47,9 @@ interface RequestOptions {
 }
 
 async function rawRequest(path: string, options: RequestOptions): Promise<Response> {
-  const headers: Record<string, string> = {};
+  // Also doubles as the interim CSRF mitigation on the cookie-authenticated refresh/logout
+  // endpoints — see docs/DECISIONS.md.
+  const headers: Record<string, string> = { "X-Request-Id": crypto.randomUUID() };
   if (accessToken) {
     headers.Authorization = `Bearer ${accessToken}`;
   }
@@ -68,7 +80,11 @@ let refreshPromise: Promise<string | null> | null = null;
 async function refreshAccessToken(): Promise<string | null> {
   refreshPromise ??= (async () => {
     try {
-      const response = await fetch(`${API_BASE}/auth/refresh`, { method: "POST", credentials: "include" });
+      const response = await fetch(`${API_BASE}/auth/refresh`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "X-Request-Id": crypto.randomUUID() },
+      });
       if (!response.ok) {
         return null;
       }
@@ -91,6 +107,8 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     const newToken = await refreshAccessToken();
     if (newToken) {
       response = await rawRequest(path, options);
+    } else {
+      onSessionExpired?.();
     }
   }
 

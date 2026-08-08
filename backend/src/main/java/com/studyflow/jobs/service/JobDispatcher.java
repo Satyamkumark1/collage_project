@@ -5,15 +5,18 @@ import com.studyflow.jobs.domain.AiJob;
 import com.studyflow.jobs.domain.TaskType;
 import com.studyflow.jobs.domain.TransientJobException;
 import com.studyflow.jobs.repo.AiJobClaimDao;
+import com.studyflow.jobs.repo.AiJobClaimDao.ClaimedJob;
 import com.studyflow.jobs.repo.AiJobRepository;
 import jakarta.annotation.PreDestroy;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -43,6 +46,11 @@ public class JobDispatcher {
     private final Map<TaskType, JobHandler> handlers;
     private final ExecutorService workerPool = Executors.newFixedThreadPool(WORKER_POOL_SIZE);
     private final ScheduledExecutorService heartbeatPool = Executors.newScheduledThreadPool(2);
+    // Claiming a job flips it to RUNNING in the DB immediately, so an unbounded claim would let
+    // jobs pile up "RUNNING" in the DB while actually just waiting in workerPool's internal
+    // queue — misreporting status and starving their heartbeat. Bound claims to actually-free
+    // workers instead.
+    private final Semaphore workerPermits = new Semaphore(WORKER_POOL_SIZE);
 
     @Value("${studyflow.jobs.dispatcher.enabled:true}")
     private boolean enabled = true;
@@ -65,41 +73,57 @@ public class JobDispatcher {
 
     /** Claims at most one job and submits it for processing. Returns the claimed job id, if any. */
     public UUID pollOnce() {
-        return claimDao.claimNextJobId().map(jobId -> {
-            workerPool.submit(() -> process(jobId));
-            return jobId;
-        }).orElse(null);
+        if (!workerPermits.tryAcquire()) {
+            return null;
+        }
+        Optional<ClaimedJob> claimed = claimDao.claimNextJobId();
+        if (claimed.isEmpty()) {
+            workerPermits.release();
+            return null;
+        }
+        ClaimedJob job = claimed.get();
+        workerPool.submit(() -> {
+            try {
+                process(job.id(), job.attempts());
+            } finally {
+                workerPermits.release();
+            }
+        });
+        return job.id();
     }
 
-    private void process(UUID jobId) {
+    private void process(UUID jobId, int attempts) {
         AiJob job = jobRepository.findByIdForInternalProcessing(jobId).orElse(null);
         if (job == null) {
             return;
         }
         JobHandler handler = handlers.get(job.getTaskType());
         if (handler == null) {
-            lifecycleService.markFailed(jobId, "NO_HANDLER", "No handler registered for " + job.getTaskType());
+            lifecycleService.markFailed(jobId, attempts, "NO_HANDLER", "No handler registered for " + job.getTaskType());
             return;
         }
 
+        // initialDelay=0 so the first heartbeat lands immediately — a job whose handler takes
+        // longer than STALE_HEARTBEAT_SECONDS before its first heartbeat would otherwise look
+        // stale to the sweeper before it ever got one.
         ScheduledFuture<?> heartbeat = heartbeatPool.scheduleAtFixedRate(
-                () -> lifecycleService.touchHeartbeat(jobId), HEARTBEAT_INTERVAL_SECONDS, HEARTBEAT_INTERVAL_SECONDS,
+                () -> lifecycleService.touchHeartbeat(jobId, attempts), 0, HEARTBEAT_INTERVAL_SECONDS,
                 TimeUnit.SECONDS);
         try {
-            ProgressReporter reporter = (pct, stage) -> lifecycleService.updateProgress(jobId, pct, stage);
+            ProgressReporter reporter = (pct, stage) -> lifecycleService.updateProgress(jobId, attempts, pct, stage);
             String resultRef = handler.handle(job, reporter);
-            lifecycleService.markSucceeded(jobId, resultRef);
+            lifecycleService.markSucceeded(jobId, attempts, resultRef);
         } catch (TransientJobException e) {
             log.warn("Transient failure on job {}: {}", jobId, e.getMessage());
-            lifecycleService.retryOrFail(jobId, "TRANSIENT_FAILURE", e.getMessage());
+            lifecycleService.retryOrFail(jobId, attempts, "TRANSIENT_FAILURE", e.getMessage());
         } catch (ApiException e) {
             // Carries a stable ErrorCode (e.g. AI_SCHEMA_INVALID, AI_INSUFFICIENT_CONTEXT) —
             // surface it as-is rather than collapsing to a generic HANDLER_ERROR.
             log.warn("Job {} failed with {}: {}", jobId, e.code(), e.getMessage());
-            lifecycleService.markFailed(jobId, e.code().name(), e.getMessage());
+            lifecycleService.markFailed(jobId, attempts, e.code().name(), e.getMessage());
         } catch (Exception e) {
             log.error("Job {} failed", jobId, e);
-            lifecycleService.markFailed(jobId, "HANDLER_ERROR", e.getMessage());
+            lifecycleService.markFailed(jobId, attempts, "HANDLER_ERROR", e.getMessage());
         } finally {
             heartbeat.cancel(false);
         }

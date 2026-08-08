@@ -27,7 +27,7 @@ public class AiJobClaimDao {
               FOR UPDATE SKIP LOCKED
               LIMIT 1
             )
-            RETURNING id
+            RETURNING id, attempts
             """;
 
     private final JdbcTemplate jdbcTemplate;
@@ -36,9 +36,19 @@ public class AiJobClaimDao {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    /**
+     * The attempt generation this claim just produced — every subsequent lifecycle write for
+     * this run (heartbeat, progress, success, failure) must be fenced on it, so a worker that
+     * stalls past the sweeper's stale-heartbeat requeue can never clobber a later worker's
+     * legitimate state for the same job id once it eventually finishes (see JobLifecycleService).
+     */
+    public record ClaimedJob(UUID id, int attempts) {
+    }
+
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public Optional<UUID> claimNextJobId() {
-        List<UUID> ids = jdbcTemplate.query(CLAIM_SQL, (rs, rowNum) -> (UUID) rs.getObject("id"));
-        return ids.stream().findFirst();
+    public Optional<ClaimedJob> claimNextJobId() {
+        List<ClaimedJob> claimed = jdbcTemplate.query(CLAIM_SQL,
+                (rs, rowNum) -> new ClaimedJob((UUID) rs.getObject("id"), rs.getInt("attempts")));
+        return claimed.stream().findFirst();
     }
 }
