@@ -72,7 +72,7 @@ public class JobDispatcher {
     }
 
     private void process(UUID jobId) {
-        AiJob job = jobRepository.findById(jobId).orElse(null);
+        AiJob job = jobRepository.findByIdForInternalProcessing(jobId).orElse(null);
         if (job == null) {
             return;
         }

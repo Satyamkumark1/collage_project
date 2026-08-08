@@ -30,30 +30,30 @@ public class JobLifecycleService {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void updateProgress(UUID jobId, int pct, String stage) {
-        repository.findById(jobId).ifPresent(job -> job.reportProgress((short) pct, stage));
+        repository.findByIdForInternalProcessing(jobId).ifPresent(job -> job.reportProgress((short) pct, stage));
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void touchHeartbeat(UUID jobId) {
-        repository.findById(jobId)
+        repository.findByIdForInternalProcessing(jobId)
                 .ifPresent(job -> job.reportProgress(job.getProgressPct(), job.getProgressStage()));
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void markSucceeded(UUID jobId, String resultRefJson) {
-        repository.findById(jobId).ifPresent(job -> job.markSucceeded(resultRefJson));
+        repository.findByIdForInternalProcessing(jobId).ifPresent(job -> job.markSucceeded(resultRefJson));
     }
 
     /** Non-transient failure (validation, quota exhaustion, unexpected error): straight to FAILED. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void markFailed(UUID jobId, String errorCode, String errorMessage) {
-        repository.findById(jobId).ifPresent(job -> job.markFailed(errorCode, errorMessage));
+        repository.findByIdForInternalProcessing(jobId).ifPresent(job -> job.markFailed(errorCode, errorMessage));
     }
 
     /** Transient failure: retry with backoff if attempts remain, else FAILED. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void retryOrFail(UUID jobId, String errorCode, String errorMessage) {
-        repository.findById(jobId).ifPresent(job -> {
+        repository.findByIdForInternalProcessing(jobId).ifPresent(job -> {
             if (job.canRetry()) {
                 job.requeueAfterStaleHeartbeat(nextRunAfter(job.getAttempts()));
             } else {
