@@ -7,7 +7,10 @@ import com.studyflow.ai.repo.AiCallRepository;
 import com.studyflow.jobs.repo.AiJobRepository;
 import com.studyflow.library.repo.DocumentRepository;
 import com.studyflow.rag.repo.DocumentChunkRepository;
+import com.studyflow.study.repo.FlashcardRepository;
 import com.studyflow.study.repo.KeyPointRepository;
+import com.studyflow.study.repo.QuestionRepository;
+import com.studyflow.study.repo.QuestionSetRepository;
 import com.studyflow.study.repo.SummaryRepository;
 import com.studyflow.tutor.repo.ConversationRepository;
 import com.studyflow.tutor.repo.MessageRepository;
@@ -73,6 +76,24 @@ class ArchitectureTest {
             .because("callers must use findByIdAndOwnerId instead — see specs/02-data-model.md");
 
     @ArchTest
+    static final ArchRule questionSetRepositoryIsOwnerScoped = noClasses()
+            .that().resideOutsideOfPackage("com.studyflow.study.repo")
+            .should().callMethod(QuestionSetRepository.class, "findById", Object.class)
+            .because("callers must use findByIdAndOwnerId instead — see specs/02-data-model.md");
+
+    @ArchTest
+    static final ArchRule questionRepositoryIsOwnerScoped = noClasses()
+            .that().resideOutsideOfPackage("com.studyflow.study.repo")
+            .should().callMethod(QuestionRepository.class, "findById", Object.class)
+            .because("callers must use findByIdAndOwnerId instead — see specs/02-data-model.md");
+
+    @ArchTest
+    static final ArchRule flashcardRepositoryIsOwnerScoped = noClasses()
+            .that().resideOutsideOfPackage("com.studyflow.study.repo")
+            .should().callMethod(FlashcardRepository.class, "findById", Object.class)
+            .because("callers must use findByIdAndOwnerId instead — see specs/02-data-model.md");
+
+    @ArchTest
     static final ArchRule conversationRepositoryIsOwnerScoped = noClasses()
             .that().resideOutsideOfPackage("com.studyflow.tutor.repo")
             .should().callMethod(ConversationRepository.class, "findById", Object.class)
@@ -125,6 +146,27 @@ class ArchitectureTest {
     @ArchTest
     static final ArchRule keyPointRepositoryDeclaresOwnerScopedFinder = classes()
             .that().areAssignableTo(KeyPointRepository.class)
+            .should(declareOwnerScopedFindById())
+            .because("owner-scoped repositories must expose findByIdAndOwnerId(UUID, UUID) — see "
+                    + "specs/02-data-model.md");
+
+    @ArchTest
+    static final ArchRule questionSetRepositoryDeclaresOwnerScopedFinder = classes()
+            .that().areAssignableTo(QuestionSetRepository.class)
+            .should(declareOwnerScopedFindById())
+            .because("owner-scoped repositories must expose findByIdAndOwnerId(UUID, UUID) — see "
+                    + "specs/02-data-model.md");
+
+    @ArchTest
+    static final ArchRule questionRepositoryDeclaresOwnerScopedFinder = classes()
+            .that().areAssignableTo(QuestionRepository.class)
+            .should(declareOwnerScopedFindById())
+            .because("owner-scoped repositories must expose findByIdAndOwnerId(UUID, UUID) — see "
+                    + "specs/02-data-model.md");
+
+    @ArchTest
+    static final ArchRule flashcardRepositoryDeclaresOwnerScopedFinder = classes()
+            .that().areAssignableTo(FlashcardRepository.class)
             .should(declareOwnerScopedFindById())
             .because("owner-scoped repositories must expose findByIdAndOwnerId(UUID, UUID) — see "
                     + "specs/02-data-model.md");

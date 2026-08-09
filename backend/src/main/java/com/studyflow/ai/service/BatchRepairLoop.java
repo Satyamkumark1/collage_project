@@ -7,6 +7,7 @@ import com.studyflow.ai.AiProvider;
 import com.studyflow.ai.domain.AiOutcome;
 import com.studyflow.common.error.ApiException;
 import com.studyflow.common.error.ErrorCode;
+import com.studyflow.jobs.domain.TransientJobException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -65,7 +66,34 @@ public class BatchRepairLoop {
         List<Message> firstMessages = List.of(
                 new Message("system", request.systemPrompt()),
                 new Message("user", request.userContent()));
-        AiCompletionResult first = callProvider(request, firstMessages);
+
+        AiCompletionResult first;
+        boolean usedRepairAttempt;
+        try {
+            first = callProvider(request, firstMessages);
+            usedRepairAttempt = false;
+        } catch (TransientJobException e) {
+            // Retryable (429/5xx/timeout) — let it propagate untouched so the job engine's own
+            // backoff/retry handles it, rather than burning this loop's one repair attempt on
+            // something a requeue would fix better.
+            throw e;
+        } catch (RuntimeException firstCallFailure) {
+            // A real failure mode observed live during Phase 3 checkpoint 16 testing: Groq's own
+            // json_object-mode validator can reject a generation outright (400
+            // json_validate_failed, empty failed_generation — no content to inspect at all).
+            // There's nothing to build a targeted repair instruction from, so this consumes the
+            // loop's one repair attempt as a plain retry of the identical request instead.
+            usedRepairAttempt = true;
+            try {
+                first = callProvider(request, firstMessages);
+            } catch (TransientJobException e) {
+                throw e;
+            } catch (RuntimeException secondCallFailure) {
+                throw new ApiException(ErrorCode.AI_SCHEMA_INVALID,
+                        "Model call failed on both the initial attempt and the one repair attempt: "
+                                + secondCallFailure.getMessage());
+            }
+        }
 
         List<JsonNode> rawItems = parseItems(first.content());
         List<T> valid = new ArrayList<>();
@@ -78,9 +106,13 @@ public class BatchRepairLoop {
                 invalid.add(new InvalidItem(itemNode, result.violations()));
             }
         }
-        logCall(request, first, invalid.isEmpty() && !valid.isEmpty() ? AiOutcome.OK : AiOutcome.SCHEMA_FAIL, 1);
+        logCall(request, first, invalid.isEmpty() && !valid.isEmpty() ? AiOutcome.OK : AiOutcome.SCHEMA_FAIL,
+                usedRepairAttempt ? 2 : 1);
 
-        if (!invalid.isEmpty()) {
+        // The plain retry above already spent this loop's one repair attempt — don't also run
+        // the targeted item-level repair call below, even if the retry's own output has some
+        // malformed items.
+        if (!invalid.isEmpty() && !usedRepairAttempt) {
             List<Message> repairMessages = List.of(
                     new Message("system", request.systemPrompt()),
                     new Message("user", request.userContent()),

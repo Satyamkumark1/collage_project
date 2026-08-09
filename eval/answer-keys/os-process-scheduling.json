@@ -1,0 +1,17 @@
+{
+  "documentSlug": "os-process-scheduling",
+  "sourceFile": "os-process-scheduling.md",
+  "expectedKeyTerms": [
+    "round robin",
+    "shortest job first",
+    "starvation",
+    "context switch",
+    "deadlock",
+    "aging"
+  ],
+  "retrievalProbes": [
+    { "query": "fixed time slice quantum preemption", "expectedKeyword": "round robin" },
+    { "query": "low priority process never gets to run", "expectedKeyword": "starvation" },
+    { "query": "four conditions required for a deadlock to occur", "expectedKeyword": "circular wait" }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "documentSlug": "dbms-acid-normalization",
+  "sourceFile": "dbms-acid-normalization.md",
+  "expectedKeyTerms": [
+    "atomicity",
+    "consistency",
+    "isolation",
+    "durability",
+    "normalization",
+    "functional dependency"
+  ],
+  "retrievalProbes": [
+    { "query": "what does it mean for a transaction to be all or nothing", "expectedKeyword": "atomicity" },
+    { "query": "third normal form transitive dependency", "expectedKeyword": "transitive" },
+    { "query": "write-ahead log durability", "expectedKeyword": "write-ahead" }
+  ]
+}

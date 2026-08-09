@@ -85,7 +85,7 @@ Phase detail and sequencing: [`specs/ROADMAP.md`](specs/ROADMAP.md).
 | 0 — Session 0 (this doc, specs/, scaffolds) | Done | 2026-08-08 | `specs/` 17 files; `mvn compile` clean; `/actuator/health` → 200; `npm run build` clean. |
 | 1 — Auth → Upload → Ingestion → Async Summary | Done | 2026-08-08 | See below. |
 | 2 — Tutor chat + retrieval | Done | 2026-08-08 | See below. |
-| 3 — Batch study generation (MCQs/flashcards) + eval harness | Checkpoint 15 complete; later checkpoints pending | 2026-08-09 | See `docs/status/phase-3.md`; `KeyPointGenerationIntegrationTest` passes in isolation. |
+| 3 — Batch study generation (MCQs/flashcards) + eval harness | Done | 2026-08-09 | See below. |
 | 4 — Quizzes | Not started | — | — |
 | 5 — Infra hardening (Cloudinary/Redis/Testcontainers/observability) | Not started | — | — |
 | 6 — Billing | Not started | — | — |
@@ -144,6 +144,46 @@ render, and a pre-existing Phase 1 concurrent-`/auth/refresh` 500 that blocked v
 Frontend: `tsc -b` strict-mode clean, `oxlint` clean, `npm run build` clean.
 
 Manual verification collection: [`docs/http/slice2.http`](docs/http/slice2.http).
+
+### Phase 3 exit-criteria evidence
+
+Backend test suite against real Postgres 15 + pgvector, real Groq, real Voyage AI, across all four
+checkpoints (key points, MCQs, the eval harness, flashcards+SM-2):
+
+```
+cd backend && set -a && source .env && set +a && ./mvnw test -Dtest=ArchitectureTest,GroqAiProviderStreamingTest,Sm2CalculatorTest,KeyPointGenerationIntegrationTest,McqGenerationIntegrationTest,FlashcardGenerationIntegrationTest
+```
+
+`ArchitectureTest` (22 tenancy rules, up from 16 at the end of Phase 2) and
+`GroqAiProviderStreamingTest` pass deterministically. `Sm2CalculatorTest` (10 cases, pure function,
+no Spring context) passes deterministically. `KeyPointGenerationIntegrationTest`,
+`McqGenerationIntegrationTest`, and `FlashcardGenerationIntegrationTest` — real
+upload→ingest→generate→persist round trips, including a deterministic optimistic-locking
+regression test for flashcard reviews — each pass cleanly run standalone; this account's Voyage
+tier is hard-capped at 3 RPM and Groq showed the same shape of tier limit under sustained load
+(confirmed live during the eval harness's first run), so an unbroken run of all three real-infra
+test classes back-to-back can intermittently show a transient rate-limit failure that isn't a code
+defect — see `docs/DECISIONS.md`, same caveat already documented for Phase 2.
+
+The eval harness (`com.studyflow.eval.EvalHarnessRunner`, excluded from default `mvn test`) ran
+its first real baseline over 3 documents: schema pass rate, both citation-groundedness metrics,
+and retrieval recall all 100% on real data — see `eval/results/baseline.md` for the full report
+and the run's own rate-limit caveat.
+
+Frontend: `tsc -b` strict-mode clean, `oxlint` clean (no new warnings), `npm run build` clean —
+covering the new Key Points, MCQ, and Flashcards pages, the `.partial-banner` component state, and
+the flip-card review UI. **Not done this session:** a live browser walkthrough (the Phase 1/2
+evidence bar) of the MCQ and Flashcards pages specifically — no browser-automation tool was
+available in this session to drive one, so this is flagged explicitly per this file's own rule
+rather than claimed. Key Points' page did get a real browser walkthrough in an earlier session
+(see `docs/status/phase-3.md`'s checkpoint 15 note). Recommend a Playwright pass over
+`/documents/:id/mcqs` and `/documents/:id/flashcards` before treating Phase 3's UI as fully proven,
+same rigor as Phase 1/2's sign-off.
+
+Full writeup, checkpoint-by-checkpoint: [`docs/status/phase-3.md`](docs/status/phase-3.md).
+Every invented product number (difficulty mix, Bloom pairing, chunk-coverage steering, SM-2
+constants, eval thresholds) is logged with rationale in
+[`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 Update this table at the end of every phase with real evidence (a command output or passing test),
 not a checkmark.

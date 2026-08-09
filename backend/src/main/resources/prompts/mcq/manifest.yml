@@ -1,0 +1,9 @@
+purpose: mcq
+version: 1
+modelClass: large-instruct
+requiredVariables: []
+outputSchemaRef: mcq-v1
+maxInputTokens: 8000
+changelog: >
+  v1 — initial MCQ batch-generation prompt (single-correct 4-option questions, explicit
+  per-question difficulty/Bloom-level/anchor-chunk target list, cited chunk ids).

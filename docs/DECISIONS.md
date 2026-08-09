@@ -24,6 +24,193 @@ these choices before extending them to MCQs/flashcards.
 
 ---
 
+## 2026-08-09 — Phase 3 checkpoint 16: MCQ difficulty mix, Bloom pairing, chunk-coverage steering
+
+**What changed:** Batch MCQ generation (`POST /documents/{id}/question-sets`, 10/25/50 counts)
+reuses checkpoint 15's `BatchRepairLoop` for the same partial-success contract (keep valid
+questions, repair only the malformed subset once, fail only if zero survive — `generated_count`
+on `question_sets` can be `< requested_count`). Three numbers/mechanics were designed fresh, same
+posture as Phase 2's RRF `k=60`/`0.35` confidence floor, because the master spec's §6.3 MCQ detail
+was never transcribed into this repo (see `specs/15-PENDING.md`):
+
+- **Difficulty mix: 40% EASY / 40% MEDIUM / 20% HARD.** Divides evenly at all three allowed
+  counts (10→4/4/2, 25→10/10/5, 50→20/20/10).
+- **Bloom level, paired to difficulty rather than mixed independently** (one target list, not
+  two crossed ratios): EASY→mostly REMEMBER, some UNDERSTAND; MEDIUM→mostly UNDERSTAND, some
+  APPLY; HARD→mostly APPLY, some ANALYZE (every 4th question at a given difficulty takes the
+  secondary level). `EVALUATE`/`CREATE` are dropped from the Bloom set — they don't map onto an
+  objective single-correct-answer MCQ.
+- **Chunk-coverage steering** is an explicit per-question target list built into the prompt
+  (`"Question 3: EASY / UNDERSTAND, primarily from chunk <id>"`), with anchor chunks spread evenly
+  across the document (`(questionIndex * chunkCount) / requestedCount`) rather than a vague
+  "spread out" instruction — gives the model and the validator something concrete. Anchor mismatch
+  isn't hard-failed (a question citing a neighbouring chunk is fine); only "citation belongs to
+  this document" is enforced.
+- **Large documents** (no natural "reduce" step for a question set, unlike summary's map-reduce):
+  chunks are split into token-budget groups (8000 tokens, headroom above summary's 6000 for the
+  chunk manifest + target list), the requested count is split proportionally across groups, each
+  group is generated independently, and results are concatenated and trimmed to exactly
+  `requestedCount` if rounding overshot.
+- **MCQ answers are returned directly** in `GET /question-sets/{id}/questions` (`correctIndex` +
+  `explanation`, no server-side reveal gate) — this phase's MCQs are self-study review, not a
+  proctored/scored quiz. The frontend hides the answer behind a client-side "reveal" button.
+  Phase 4's quiz mode can add a real gate later if scored attempts need one.
+- **MCQ batches debit the existing `AI_JOBS` monthly quota flat**, same as every other job type,
+  rather than a new weighted metric — matches the precedent that a summary on a 200-page document
+  debits the same as one on a 5-page document.
+
+**Why:** These are load-bearing product numbers invented under real constraints, not lifted from
+the master spec's actual §6.3. If the missing spec paste ever arrives with different numbers,
+treat this whole entry as superseded and re-tune against it.
+
+**What it costs:** Nothing functional yet — CI wiring for the eval harness that will eventually
+measure whether this difficulty/Bloom/coverage steering is actually working is deferred to Phase 5
+(see `docs/status/phase-3.md`).
+
+**Fixed along the way — `BatchRepairLoop` didn't handle a provider-level call failure:** The MCQ
+integration test's first real run hit a genuine live failure: Groq's own `json_object`-mode
+validator rejected a 10-question generation outright (`400 json_validate_failed`, empty
+`failed_generation` — no content at all to inspect), which `BatchRepairLoop.run()` had no handling
+for beyond letting the raw `HttpClientErrorException` propagate as an unretried `HANDLER_ERROR`
+job failure. Fixed by catching a non-transient failure on the *first* provider call and spending
+the loop's one repair attempt on a plain retry of the identical request (there's no content to
+build a targeted per-item repair instruction from); a `TransientJobException` (429/5xx) is
+re-thrown untouched so the job engine's own backoff/retry handles it instead, rather than the loop
+burning its one internal attempt on something a requeue would fix better. If the retry also fails
+at the provider level, the job now fails cleanly with `AI_SCHEMA_INVALID` instead of a raw
+provider exception. Confirmed by re-running `McqGenerationIntegrationTest` clean afterward. This
+strengthens key points too, since both features share `BatchRepairLoop`.
+
+---
+
+## 2026-08-09 — Phase 3 checkpoint 17: eval harness, Java not Node
+
+**What changed:** Built `eval/documents/` + `eval/answer-keys/` (3 starter documents — DBMS
+ACID/normalization, OS process scheduling, networking/OSI — growing toward 15-20 per
+`docs/status/phase-3.md`) and a Java harness
+(`backend/src/test/java/com/studyflow/eval/{EvalHarnessRunner,EvalDocumentFixtures,EvalReport}.java`)
+tagged `@Tag("eval")` and excluded from the default `mvn test` run via a new
+`surefire.excludedGroups` POM property (overridable with `-Dsurefire.excludedGroups=` to run it
+deliberately). No JS test runner exists in this repo and the backend already owns every piece of
+real infrastructure the harness needs, so a Node script was never in the running.
+
+The harness runs the real pipeline (upload → ingest → key points → MCQs → retrieval probes) per
+document and computes the 5 metrics named in `specs/08-ai-layer.md`'s "Eval harness" section
+against the thresholds proposed in the earlier checkpoint-16 entry — schema pass rate and MCQ
+validity from `ai_calls`/persisted `questions` rows, citation groundedness both structurally
+(cited chunk id belongs to the document, via the published `ChunkQueryService`, never a direct
+repo injection) and via a lexical word-overlap heuristic (≥15% word overlap between citing text
+and cited chunk content — approximate, flagged as such, a full semantic judge needs its own LLM
+budget this phase doesn't have), and retrieval recall via `RetrievalService` against each answer
+key's probes. First real run: `eval/results/baseline.md` — schema pass rate, both citation
+metrics, and retrieval recall all 100% on real data; MCQ validity came back 0/0 because Groq
+itself rate-limited every MCQ batch in that particular run (see below), not a validity failure.
+
+**Why:** CI wiring for this harness was already deferred to Phase 5 (previous entry). The harness
+itself needed to exist this phase regardless, per the spec's own framing ("build alongside MCQs,
+not before there's a batch feature to evaluate").
+
+**What it costs:** Metrics are computed by a fresh Java re-implementation of the validation logic
+(structural checks, lexical overlap), not a shared library with the production validators in
+`McqGenerationService`/`KeyPointExtractionService` — acceptable for an independent regression
+check (the whole point is verifying what's actually persisted, not trusting the generator's own
+self-report), but worth remembering if the production validation rules change and this harness
+needs a matching update.
+
+**Discovered along the way — Groq itself has a tight rate limit on this account, same shape as the
+already-documented Voyage constraint:** every MCQ generation job failed in the harness's first
+real run (`AI_SCHEMA_INVALID`, both the first call and `BatchRepairLoop`'s one repair attempt hit
+`429`) because 3 back-to-back 10-question MCQ batches plus the run's ingestion/key-points calls
+exceeded this account's Groq request budget within a couple of minutes. This is not a regression —
+`McqGenerationIntegrationTest` (one MCQ call, run in isolation) passes cleanly, matching exactly
+the existing Voyage caveat's shape ("each test class passes reliably run on its own with normal
+spacing"). `retrieveWithRetry` (a small local retry-with-20s-backoff wrapper in
+`EvalHarnessRunner`, since a direct `RetrievalService.retrieve()` call isn't job-queued and gets no
+retry from the job engine) was added so a Voyage `429` on a retrieval probe doesn't fail the whole
+harness run — retrieval recall (9/9) recovered fully after retries. No equivalent retry exists for
+the job-based Groq calls because the job engine's own backoff already retries those; the harness
+just observed the account run out of retries within `AiJob.maxAttempts` under this much load.
+
+---
+
+## 2026-08-09 — Phase 3 checkpoint 18: flashcards + SM-2, first mutable row in study/
+
+**What changed:** Flashcard batch generation reuses `BatchRepairLoop`/the same
+partition-and-concatenate-for-large-documents pattern as key points (no fixed target count).
+Reviews (`POST /flashcards/{id}/review`) are synchronous, not job-queued — pure SM-2 arithmetic,
+no LLM call, fits the "Auth, CRUD, listing → synchronous, p95 < 300ms" row in
+`specs/01-architecture.md`.
+
+- **SM-2 formulas**: Piotr Wozniak's original 1990 algorithm
+  (`easeFactor' = max(1.3, easeFactor + (0.1 - (5-q)*(0.08 + (5-q)*0.02)))`; interval
+  1 → 6 → `round(interval * easeFactor)`; `q < 3` resets repetitions to 0 and interval to 1 day),
+  implemented verbatim in `Sm2Calculator` — a fresh design call, same posture as the checkpoint 16
+  MCQ numbers, because (per `specs/15-PENDING.md` and `docs/status/phase-3.md`'s own note) the
+  master spec's SM-2 formulas were never actually transcribed anywhere retrievable in this repo,
+  despite the note suggesting they could be "pulled forward verbatim." New cards start at
+  `easeFactor=2.5`, `intervalDays=0`, `repetitions=0`, `dueAt=now()` (immediately due).
+  `Sm2Calculator` is a pure static function (no DB/HTTP dependency) with its own plain-JUnit
+  `Sm2CalculatorTest` (10 cases) — no Spring context needed.
+- **`dueAt` is computed in the owner's timezone** (`users.timezone`, already on `User`, default
+  `Asia/Kolkata`) as calendar days via `ZonedDateTime.plusDays(...)`, not a naive `now + N*24h` —
+  avoids the "due" wall-clock time drifting forward on every review. Not truncated to local
+  midnight (a common SRS refinement batching a day's due cards together) — nothing asked for it;
+  an easy add later, not a silent gap.
+- **UI collapses SM-2's 0-5 quality scale to 4 buttons** (Again/Hard/Good/Easy → q=0/3/4/5,
+  Anki-style) — a literal 6-button 0-5 rating is unusual in real flashcard UIs. The backend still
+  accepts/validates the full 0-5 range (`FlashcardReviewRequest`'s `@Min(0) @Max(5)`), so nothing
+  structurally blocks a richer UI later.
+- **`flashcards` is the first mutable row in `study/`** — every other batch-study table
+  (summaries, key_points, question_sets/questions) is insert-only. Added `@Version` (JPA
+  optimistic locking, migration `V17__flashcards.sql`'s `version` column) so a stale concurrent
+  review fails loudly (`ObjectOptimisticLockingFailureException`) instead of silently overwriting
+  newer SM-2 state — same lesson as the Phase 1/2 concurrent-refresh-token bug. Verified with a
+  deterministic test (`FlashcardGenerationIntegrationTest.aStaleReviewNeverSilentlyOverwritesANewerOne`):
+  two independent reads of the same card, one save succeeds, the second (stale) save is confirmed
+  to throw rather than silently losing the first review — not a timing-dependent concurrent-HTTP
+  test, which would've been flaky and inconclusive given real network/connection-pool interleaving.
+- **`GET /flashcards/due` is a plain top-N-by-`due_at` query, not cursor-paginated** — deviates
+  from the plan's initial `?limit=&cursor=` sketch. A due-now queue is inherently dynamic (each
+  review reschedules the very card that was just shown), so paging through a fixed snapshot the
+  way `GET /jobs` does is the wrong model; "the next N due, freshly queried" is more correct.
+
+**Why:** SM-2 and the timezone-aware due-date math are load-bearing product numbers invented under
+real constraints, not lifted from the master spec's actual formulas. If the missing spec paste
+ever arrives with different formulas, treat this whole entry as superseded and re-tune against it.
+
+**What it costs:** Nothing functional — `FlashcardGenerationIntegrationTest` (3 tests, including
+the optimistic-lock regression test) and `Sm2CalculatorTest` (10 tests) both pass against real
+Postgres/Groq. Running the full Phase 3 real-infra suite back-to-back in one `mvn test` invocation
+can still intermittently show `McqGenerationIntegrationTest`/`KeyPointGenerationIntegrationTest`
+failures from the same Voyage/Groq rate caps already documented above — not a regression, each
+test class passes cleanly run on its own (confirmed this session).
+
+---
+
+## 2026-08-09 — Local environment: Postgres 16 service was shadowing the project's Postgres 15
+
+**What changed:** Nothing in application code. While setting up to run checkpoint 16's integration
+test, found that `postgresql@16` (a Homebrew service unrelated to this project) was bound to port
+5432, so `postgresql@15` — the version this project's datasource, `docs/DECISIONS.md`, and
+`CLAUDE.md` all assume — was crash-looping in the background ("could not bind IPv4/IPv6 address:
+Address already in use"). The app was silently connecting to an empty Postgres 16 instance with
+no `studyflow_test`/`studyflow_dev` databases and no `pgvector` extension built for it, rather than
+the real, already-migrated Postgres 15 instance. Fixed by `brew services stop postgresql@16` +
+`brew services start postgresql@15` — the pre-existing `studyflow_test` database (migrated through
+V15 by checkpoint 15) was intact and unaffected once Postgres 15 was reachable again.
+
+**Why:** Worth logging because the symptom (`FATAL: database "studyflow_test" does not exist`,
+then `ERROR: type "vector" does not exist`) looks like a code or migration bug at first glance but
+is purely a local service-port collision. If this machine has other Postgres versions installed
+via Homebrew, re-check `brew services list` before assuming a schema problem.
+
+**What it costs:** Nothing — no data was lost; the Postgres 16 instance's (empty, unrelated)
+`studyflow_test`/`studyflow_dev` databases created during diagnosis were left in place on the now-
+stopped `postgresql@16` service rather than deleted, since that service may belong to another
+project on this machine.
+
+---
+
 ## 2026-08-08 — Testcontainers → local Postgres for integration tests
 
 **What changed:** Integration tests run against a real, dedicated local `studyflow_test`
