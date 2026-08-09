@@ -1,0 +1,9 @@
+purpose: flashcard
+version: 1
+modelClass: large-instruct
+requiredVariables: []
+outputSchemaRef: flashcard-v1
+maxInputTokens: 6000
+changelog: >
+  v1 — initial flashcard-generation prompt (front/back pairs, LaTeX preserved, per-card cited
+  chunk ids).

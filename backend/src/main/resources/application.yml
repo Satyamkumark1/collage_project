@@ -54,6 +54,8 @@ studyflow:
         summary: openai/gpt-oss-120b
         tutor: openai/gpt-oss-20b
         key-points: openai/gpt-oss-120b
+        mcq: openai/gpt-oss-120b
+        flashcard: openai/gpt-oss-120b
 
 management:
   endpoints:

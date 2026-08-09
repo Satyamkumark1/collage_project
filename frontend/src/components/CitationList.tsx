@@ -1,7 +1,12 @@
-import type { KeyPointCitation } from "../api/keyPoints";
+export interface Citation {
+  chunkId: string;
+  pageFrom: number | null;
+  pageTo: number | null;
+  sectionPath: string | null;
+}
 
 interface CitationListProps {
-  citations: KeyPointCitation[];
+  citations: Citation[];
 }
 
 export function CitationList({ citations }: CitationListProps) {

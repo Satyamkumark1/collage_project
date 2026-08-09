@@ -102,6 +102,12 @@ export function DocumentDetail() {
           <Link to={`/documents/${documentId}/key-points`} className="button button-secondary">
             Key points
           </Link>
+          <Link to={`/documents/${documentId}/mcqs`} className="button button-secondary">
+            Practice MCQs
+          </Link>
+          <Link to={`/documents/${documentId}/flashcards`} className="button button-secondary">
+            Flashcards
+          </Link>
         </div>
       )}
 

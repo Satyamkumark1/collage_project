@@ -46,6 +46,8 @@ public enum ErrorCode {
     CONVERSATION_NOT_FOUND(HttpStatus.NOT_FOUND),
     // Phase 3 (batch study generation) — same gap again.
     KEY_POINTS_NOT_FOUND(HttpStatus.NOT_FOUND),
+    QUESTION_SET_NOT_FOUND(HttpStatus.NOT_FOUND),
+    FLASHCARD_NOT_FOUND(HttpStatus.NOT_FOUND),
     NOT_FOUND(HttpStatus.NOT_FOUND),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR);
 

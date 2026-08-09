@@ -1,0 +1,17 @@
+{
+  "documentSlug": "networking-osi-model",
+  "sourceFile": "networking-osi-model.md",
+  "expectedKeyTerms": [
+    "osi model",
+    "transport layer",
+    "tcp",
+    "udp",
+    "three-way handshake",
+    "dns"
+  ],
+  "retrievalProbes": [
+    { "query": "connectionless protocol no guaranteed delivery", "expectedKeyword": "udp" },
+    { "query": "syn syn-ack ack connection setup", "expectedKeyword": "three-way handshake" },
+    { "query": "translating domain names into ip addresses", "expectedKeyword": "dns" }
+  ]
+}

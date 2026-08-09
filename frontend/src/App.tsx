@@ -8,6 +8,10 @@ import { Upload } from "./pages/Upload";
 import { DocumentDetail } from "./pages/DocumentDetail";
 import { Tutor } from "./pages/Tutor";
 import { KeyPoints } from "./pages/KeyPoints";
+import { Mcqs } from "./pages/Mcqs";
+import { Flashcards } from "./pages/Flashcards";
+import { useQuery } from "@tanstack/react-query";
+import { listDueFlashcards } from "./api/flashcards";
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { status } = useAuth();
@@ -30,6 +34,14 @@ function NavBar() {
   const { status, logout } = useAuth();
   const navigate = useNavigate();
 
+  const dueQuery = useQuery({
+    queryKey: ["flashcards-due-count"],
+    queryFn: () => listDueFlashcards(1),
+    enabled: status === "authenticated",
+    refetchInterval: 60_000,
+  });
+  const dueCount = dueQuery.data?.length ?? 0;
+
   return (
     <nav className="nav-bar">
       <Link to="/library" className="nav-brand">
@@ -37,6 +49,11 @@ function NavBar() {
       </Link>
       {status === "authenticated" && (
         <div className="nav-links">
+          {dueCount > 0 && (
+            <span className="badge" style={{ borderColor: "var(--highlight)", color: "var(--highlight)" }}>
+              Flashcards due
+            </span>
+          )}
           <Link to="/upload" className="link-button">
             Upload
           </Link>
@@ -99,6 +116,22 @@ export default function App() {
           element={
             <ProtectedRoute>
               <KeyPoints />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/documents/:id/mcqs"
+          element={
+            <ProtectedRoute>
+              <Mcqs />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/documents/:id/flashcards"
+          element={
+            <ProtectedRoute>
+              <Flashcards />
             </ProtectedRoute>
           }
         />

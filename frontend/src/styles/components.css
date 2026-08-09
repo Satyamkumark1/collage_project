@@ -115,6 +115,25 @@
   color: var(--red-pen);
 }
 
+/* Partial-success batch generation ("42 of 50 generated") — same shape as .error-banner but
+   keyed to --highlight, not --red-pen: this isn't a failure, some items just didn't pass
+   validation. See specs/11-frontend.md's "every screen needs five states" and docs/DECISIONS.md. */
+.partial-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--highlight);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  background: var(--sheet);
+  color: var(--ink);
+}
+
+.partial-banner strong {
+  color: var(--ink);
+}
+
 .empty-state {
   text-align: center;
   padding: 3rem 1.5rem;
