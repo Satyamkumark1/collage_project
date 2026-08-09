@@ -86,6 +86,8 @@ public class BatchRepairLoop {
             usedRepairAttempt = true;
             try {
                 first = callProvider(request, firstMessages);
+            } catch (TransientJobException e) {
+                throw e;
             } catch (RuntimeException secondCallFailure) {
                 throw new ApiException(ErrorCode.AI_SCHEMA_INVALID,
                         "Model call failed on both the initial attempt and the one repair attempt: "
