@@ -393,3 +393,126 @@
     opacity: 0;
   }
 }
+
+/* OMR bubbles — specs/11-frontend.md's reserved "Secondary motif," deferred until quizzes gave
+   us a real single-choice control to skin. A row of 4 circular markers (A/B/C/D), filled solid
+   ink when selected — literal pencil-bubble sheet, not a styled radio button. */
+.omr-option {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.omr-option:hover {
+  border-color: var(--ink-60);
+}
+
+.omr-option.selected {
+  border-color: var(--ink);
+}
+
+/* The radio itself is visually hidden (see below) but still Tab-focusable — :focus-within puts
+   the visible ring on the label that wraps it, matching this app's "never outline: none" floor. */
+.omr-option:focus-within {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.omr-option input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.omr-bubble {
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  border: 2px solid var(--ink-60);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+
+.omr-option.selected .omr-bubble {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+/* Result view only — correctness isn't known (and never sent) until an attempt is terminal. */
+.omr-bubble.correct {
+  border-color: var(--check);
+  color: var(--check);
+}
+
+.omr-option.selected .omr-bubble.correct {
+  background: var(--check);
+  color: var(--paper);
+}
+
+.omr-bubble.incorrect {
+  border-color: var(--red-pen);
+  color: var(--red-pen);
+}
+
+.omr-option.selected .omr-bubble.incorrect {
+  background: var(--red-pen);
+  color: var(--paper);
+}
+
+.quiz-timer {
+  font-family: var(--font-mono);
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.quiz-timer.quiz-timer-critical {
+  color: var(--red-pen);
+}
+
+.quiz-timer.quiz-timer-overtime {
+  color: var(--ink-60);
+}
+
+.quiz-question-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.quiz-question-dot {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 999px;
+  border: 1px solid var(--rule);
+  background: var(--sheet);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.quiz-question-dot.answered {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.quiz-question-dot.current {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}

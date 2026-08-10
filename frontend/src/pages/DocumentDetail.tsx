@@ -108,6 +108,9 @@ export function DocumentDetail() {
           <Link to={`/documents/${documentId}/flashcards`} className="button button-secondary">
             Flashcards
           </Link>
+          <Link to={`/documents/${documentId}/quizzes`} className="button button-secondary">
+            Quizzes
+          </Link>
         </div>
       )}
 

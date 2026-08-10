@@ -11,6 +11,9 @@ import com.studyflow.study.repo.FlashcardRepository;
 import com.studyflow.study.repo.KeyPointRepository;
 import com.studyflow.study.repo.QuestionRepository;
 import com.studyflow.study.repo.QuestionSetRepository;
+import com.studyflow.study.repo.QuizAnswerRepository;
+import com.studyflow.study.repo.QuizAttemptRepository;
+import com.studyflow.study.repo.QuizRepository;
 import com.studyflow.study.repo.SummaryRepository;
 import com.studyflow.tutor.repo.ConversationRepository;
 import com.studyflow.tutor.repo.MessageRepository;
@@ -94,6 +97,24 @@ class ArchitectureTest {
             .because("callers must use findByIdAndOwnerId instead — see specs/02-data-model.md");
 
     @ArchTest
+    static final ArchRule quizRepositoryIsOwnerScoped = noClasses()
+            .that().resideOutsideOfPackage("com.studyflow.study.repo")
+            .should().callMethod(QuizRepository.class, "findById", Object.class)
+            .because("callers must use findByIdAndOwnerId instead — see specs/02-data-model.md");
+
+    @ArchTest
+    static final ArchRule quizAttemptRepositoryIsOwnerScoped = noClasses()
+            .that().resideOutsideOfPackage("com.studyflow.study.repo")
+            .should().callMethod(QuizAttemptRepository.class, "findById", Object.class)
+            .because("callers must use findByIdAndOwnerId instead — see specs/02-data-model.md");
+
+    @ArchTest
+    static final ArchRule quizAnswerRepositoryIsOwnerScoped = noClasses()
+            .that().resideOutsideOfPackage("com.studyflow.study.repo")
+            .should().callMethod(QuizAnswerRepository.class, "findById", Object.class)
+            .because("callers must use findByIdAndOwnerId instead — see specs/02-data-model.md");
+
+    @ArchTest
     static final ArchRule conversationRepositoryIsOwnerScoped = noClasses()
             .that().resideOutsideOfPackage("com.studyflow.tutor.repo")
             .should().callMethod(ConversationRepository.class, "findById", Object.class)
@@ -167,6 +188,27 @@ class ArchitectureTest {
     @ArchTest
     static final ArchRule flashcardRepositoryDeclaresOwnerScopedFinder = classes()
             .that().areAssignableTo(FlashcardRepository.class)
+            .should(declareOwnerScopedFindById())
+            .because("owner-scoped repositories must expose findByIdAndOwnerId(UUID, UUID) — see "
+                    + "specs/02-data-model.md");
+
+    @ArchTest
+    static final ArchRule quizRepositoryDeclaresOwnerScopedFinder = classes()
+            .that().areAssignableTo(QuizRepository.class)
+            .should(declareOwnerScopedFindById())
+            .because("owner-scoped repositories must expose findByIdAndOwnerId(UUID, UUID) — see "
+                    + "specs/02-data-model.md");
+
+    @ArchTest
+    static final ArchRule quizAttemptRepositoryDeclaresOwnerScopedFinder = classes()
+            .that().areAssignableTo(QuizAttemptRepository.class)
+            .should(declareOwnerScopedFindById())
+            .because("owner-scoped repositories must expose findByIdAndOwnerId(UUID, UUID) — see "
+                    + "specs/02-data-model.md");
+
+    @ArchTest
+    static final ArchRule quizAnswerRepositoryDeclaresOwnerScopedFinder = classes()
+            .that().areAssignableTo(QuizAnswerRepository.class)
             .should(declareOwnerScopedFindById())
             .because("owner-scoped repositories must expose findByIdAndOwnerId(UUID, UUID) — see "
                     + "specs/02-data-model.md");

@@ -5,6 +5,127 @@ Silent deviation is the failure mode; this log is what makes deviation legitimat
 
 ---
 
+## 2026-08-10 — Phase 4: quiz build/mode/scoring design, server-authoritative timing
+
+**What changed:** Quizzes (`quizzes`, `quiz_attempts`, `quiz_answers`, migration
+`V18__quizzes.sql`) landed as a thin wrapper around the existing MCQ pipeline rather than a new
+generation path: `POST /documents/{id}/quizzes` (`Idempotency-Key` required, `QUIZ_BUILD` job
+type) calls the unmodified `McqGenerationService.generate(...)` to produce a fresh
+`question_sets`/`questions` batch, then `QuizGenerationService` wraps the result in a `Quiz` row
+carrying mode-derived timing/scoring config. No new prompt, no new validation logic — the same
+difficulty mix, Bloom pairing, chunk-coverage steering, and partial-success ("N of M questions")
+contract from Phase 3 apply unchanged. As with every other invented product number in this repo,
+none of this comes from the master spec — `specs/10-study-features.md` marks quiz detail as
+"preserved in the pasted master spec," but per `specs/15-PENDING.md` that paste never arrived and
+never covered quizzes specifically. Fresh design calls, same posture as Phase 3's MCQ/SM-2
+numbers:
+
+- **Three modes, concretely differentiated, not just labeled:**
+  - **EXAM** — hard server-authoritative deadline (`time_limit_seconds = questionCount * 90`,
+    ~JEE/NEET MCQ pacing). Any answer-save attempted after the deadline is rejected
+    (`409 QUIZ_ATTEMPT_EXPIRED`) and the attempt is auto-finalized server-side as `EXPIRED`,
+    scored from whatever was saved. Negative marking: `-0.25`/wrong (JEE/NEET convention),
+    `+1`/correct, `0`/unanswered. Answer key (`correctIndex`/`explanation`) is never sent to the
+    client while `IN_PROGRESS` — `GET /quizzes/{id}/questions` uses a dedicated
+    `QuizQuestionResponse` DTO that structurally omits both fields, unlike MCQ self-study's
+    `QuestionResponse`.
+  - **PRACTICE** — same time limit, shown as a countdown, but **not enforced** — answer writes
+    and submit both keep working past it (client shows "Overtime," not a hard stop). No negative
+    marking. Same answer-key withholding as EXAM.
+  - **REVISION** — untimed (`time_limit_seconds = NULL`, no countdown UI). No negative marking.
+    The one mode where `PUT /quiz-attempts/{id}/answers/{questionId}` returns `isCorrect` +
+    `explanation` inline — a formative pass, not an assessment.
+- **Scoring:** `score = correctCount - incorrectCount * negativeMarkingFraction`, `maxScore =
+  questionCount`, unanswered = 0 (`QuizScorer`, a pure function with no DB/HTTP dependency — same
+  posture as `Sm2Calculator`). `quizzes.negative_marking_fraction NUMERIC(3,2)` (`0.25` for EXAM,
+  `0` otherwise) rather than a mode-keyed constant duplicated across services.
+- **`submit` is always accepted and idempotent**, even past an EXAM deadline — it finalizes (or
+  returns the already-finalized result) rather than erroring. Only *mid-attempt answer writes*
+  hard-reject on EXAM expiry. Matches real exam UX: submit never fails, only "keep working" does.
+  `QuizAttemptService.saveAnswer`/`submit`/`result`/`get` all re-check `now()` against the
+  attempt's own `deadlineAt` server-side on every call — the client's countdown is a display
+  computed from the server-issued `deadlineAt`, never a source of truth.
+- **`quiz_attempts` carries `@Version`** (JPA optimistic locking), same rationale as `Flashcard`
+  in Phase 3: a concurrent submit-vs-lazy-expire race (two tabs on the same attempt) must fail
+  loudly, not silently double-score.
+- **`GET /quiz-attempts/{id}/answers` was added beyond the original endpoint sketch** — resuming
+  an in-progress attempt after a page reload needs to know which answers were already saved, and
+  none of the other endpoints expose that pre-submission. This is safe to expose regardless of
+  attempt status: it's the student's own previously saved picks, never the answer key.
+- **Quiz build debits the existing `AI_JOBS` monthly quota** via the unmodified
+  `JobEnqueueService.enqueue(...)` path — no new quota metric, same precedent as MCQs/flashcards.
+- **OMR-bubble motif** (`specs/11-frontend.md`'s reserved "Secondary motif," deferred until now)
+  implemented as `.omr-option`/`.omr-bubble` in `components.css` — a visually-hidden native radio
+  input inside a styled `<label>`, so the browser's own label-click-toggles-input semantics do the
+  interaction work; no custom click handling needed beyond the `onChange`.
+
+**Why:** Reusing `McqGenerationService` unchanged means quiz build inherits Phase 3's entire
+validated generation/partial-success machinery for free, and honors
+`specs/01-architecture.md`'s own classification of "quiz build" as an async job (unlike a "select
+existing questions" design, which would have no LLM call and no honest reason to be async).
+
+**What it costs:** Nothing functional — `QuizGenerationIntegrationTest` (6 tests total: one
+exercising EXAM negative marking, answer-key withholding, and the clear-an-answer path together;
+one each for PRACTICE no-negative-marking and REVISION untimed + immediate feedback; one
+deterministic EXAM-expiry test backdating `deadline_at` directly through `JdbcTemplate` rather
+than a real `Thread.sleep` — same technique as Phase 3's flashcard optimistic-lock test; plus 2
+cheap validation tests) passes cleanly against real Postgres/Groq — confirmed both as a full class
+run and each test method in isolation.
+`ArchitectureTest` is 28/28 (22 existing + 6 new tenancy rules for `QuizRepository`/
+`QuizAttemptRepository`/`QuizAnswerRepository`). Running the full non-eval `mvn test` suite
+back-to-back hit the same pre-existing Voyage/Groq rate-tier ceiling already documented below
+(this session's cumulative real-API load pushed Groq into a *sustained*, not just transient,
+rate-limited state for a stretch — see the next entry) — every quiz test class and method passes
+standalone with normal spacing, matching the exact caveat already accepted for
+Mcq/Flashcard/Retrieval/Tutor integration tests. Frontend: `tsc -b` strict, `oxlint` clean (no new
+warnings), `npm run build` clean.
+
+---
+
+## 2026-08-10 — Local dev database (`studyflow_dev`) had independent migration drift from `studyflow_test`
+
+**What changed:** Nothing in application code. While starting the backend locally
+(`./mvnw spring-boot:run -Dspring-boot.run.profiles=local`) to do a real browser walkthrough of
+Phase 4, Flyway failed validating `studyflow_dev` — a checksum mismatch on `V12__tutor_chat.sql`
+(the file's on-disk checksum no longer matched what was recorded from an earlier local run, i.e.
+someone/something touched V12 after it was already applied to this specific database). Fixed the
+checksum by hand (`UPDATE flyway_schema_history SET checksum = <resolved-locally value Flyway's
+own error message reported> WHERE version = '12'` — the standard, non-destructive meaning of what
+`flyway:repair` does). Migrating past that surfaced a second, unrelated problem: `V13__tutor_chat.sql`
+tried to `CREATE TABLE conversations`, which already existed in `studyflow_dev` — meaning V13's
+DDL had been applied to this database at some point without ever being recorded in
+`flyway_schema_history` (likely a manual/partial run from earlier local development, predating
+this session).
+
+**Why this matters:** This is `studyflow_dev`-specific drift, unrelated to Phase 4 — `studyflow_test`
+(what the automated test suite and CI-equivalent verification actually use) was already cleanly
+migrated through V18 with no issues, confirmed by every integration test run this session.
+Rather than keep hand-patching a second, unrelated migration-history inconsistency on a database
+whose prior manual state isn't something this session has context on, the browser walkthrough was
+pointed at `studyflow_test` instead (`DB_URL` overridden for that one run only, `.env` untouched)
+— clean, already-verified-through-V18, and zero risk of guessing wrong about someone else's local
+dev data.
+
+**What it costs:** `studyflow_dev` is left with the V12 checksum fixed but `V13` still unresolved
+(migration would still fail if started against `studyflow_dev` as-is). Not fixed further this
+session because doing so blind (either forcibly marking V13 as already-applied via
+`flyway:baseline`/history-table surgery, or dropping/recreating `conversations`) risks losing real
+local dev data without knowing why V13 was already half-applied outside Flyway's bookkeeping.
+`flyway repair` is the right tool for the V12 checksum drift above (it recomputes a recorded
+checksum to match the resolved migration file for a version Flyway already knows was genuinely
+applied) — it is **not** the right tool for V13, since V13 was never recorded as applied at all;
+repair has nothing to reconcile there and won't register it. A raw `INSERT` into
+`flyway_schema_history` is a similarly bad fit — it fabricates history Flyway never observed,
+with no built-in check that the row's checksum/shape actually matches what's live. Whoever owns
+this local environment should decide: if `studyflow_dev`'s data isn't precious, easiest fix is
+dropping and letting Flyway rebuild it from scratch; if it is, first take a backup (or clone the
+DB) and run a real schema diff confirming the live `conversations` table exactly matches what
+`V13__tutor_chat.sql` would have produced, then use Flyway's own supported mechanism for "this
+migration was already applied outside Flyway" — `flyway migrate -skipExecutingMigrations` (which
+records V13 as applied without re-running its DDL) — rather than hand-editing the history table.
+
+---
+
 ## 2026-08-08 — Phase 3 checkpoint 15: key points + shared batch repair loop
 
 **What changed:** Key points extraction was implemented first for batch-study generation, with a
