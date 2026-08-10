@@ -10,6 +10,9 @@ import { Tutor } from "./pages/Tutor";
 import { KeyPoints } from "./pages/KeyPoints";
 import { Mcqs } from "./pages/Mcqs";
 import { Flashcards } from "./pages/Flashcards";
+import { Quizzes } from "./pages/Quizzes";
+import { QuizAttempt } from "./pages/QuizAttempt";
+import { QuizResult } from "./pages/QuizResult";
 import { useQuery } from "@tanstack/react-query";
 import { listDueFlashcards } from "./api/flashcards";
 
@@ -132,6 +135,30 @@ export default function App() {
           element={
             <ProtectedRoute>
               <Flashcards />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/documents/:id/quizzes"
+          element={
+            <ProtectedRoute>
+              <Quizzes />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/quizzes/:quizId/attempts/:attemptId"
+          element={
+            <ProtectedRoute>
+              <QuizAttempt />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/quiz-attempts/:attemptId/result"
+          element={
+            <ProtectedRoute>
+              <QuizResult />
             </ProtectedRoute>
           }
         />

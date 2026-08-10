@@ -86,7 +86,7 @@ Phase detail and sequencing: [`specs/ROADMAP.md`](specs/ROADMAP.md).
 | 1 — Auth → Upload → Ingestion → Async Summary | Done | 2026-08-08 | See below. |
 | 2 — Tutor chat + retrieval | Done | 2026-08-08 | See below. |
 | 3 — Batch study generation (MCQs/flashcards) + eval harness | Done | 2026-08-09 | See below. |
-| 4 — Quizzes | Not started | — | — |
+| 4 — Quizzes | Done | 2026-08-10 | See below. |
 | 5 — Infra hardening (Cloudinary/Redis/Testcontainers/observability) | Not started | — | — |
 | 6 — Billing | Not started | — | — |
 | 7 — Planner, exports, admin | Not started | — | — |
@@ -183,6 +183,44 @@ same rigor as Phase 1/2's sign-off.
 Full writeup, checkpoint-by-checkpoint: [`docs/status/phase-3.md`](docs/status/phase-3.md).
 Every invented product number (difficulty mix, Bloom pairing, chunk-coverage steering, SM-2
 constants, eval thresholds) is logged with rationale in
+[`docs/DECISIONS.md`](docs/DECISIONS.md).
+
+### Phase 4 exit-criteria evidence
+
+Backend test suite against real Postgres 15 + real Groq:
+
+```
+cd backend && set -a && source .env && set +a && ./mvnw test -Dtest=ArchitectureTest,QuizGenerationIntegrationTest
+```
+
+`ArchitectureTest` (28 tenancy rules, up from 22 at the end of Phase 3 — 6 new for
+`QuizRepository`/`QuizAttemptRepository`/`QuizAnswerRepository`) passes deterministically.
+`QuizGenerationIntegrationTest` (6 tests total: one exercising EXAM negative-marking,
+answer-key-withheld-until-submit, and the clear-an-answer path together; one each for PRACTICE
+no-negative-marking and REVISION untimed with immediate feedback; one deterministic EXAM-expiry
+test that backdates `deadline_at` directly rather than a real `Thread.sleep`; plus 2 validation
+tests) — every test method confirmed passing individually with normal spacing; this account's Groq
+tier showed the same sustained rate-limit ceiling already documented for Phase 2/3 under this
+session's cumulative real-API load, not a code defect (see `docs/DECISIONS.md`).
+
+Frontend: `tsc -b` strict-mode clean, `oxlint` clean (no new warnings), `npm run build` clean.
+
+End-to-end, driven through the real browser UI (Playwright against the running dev servers) —
+register → login → upload a real `.md` file → watched ingestion reach `READY` → built a real
+EXAM-mode quiz (real Groq generation) → started a timed attempt, confirmed the server-issued
+countdown rendered and the answer key was absent both from the DOM and from a direct
+`GET /quiz-attempts/{id}/result` call while in progress (`409 QUIZ_ATTEMPT_NOT_IN_PROGRESS`) →
+answered questions via the OMR-bubble control → submitted → the result page showed a real
+negative-marked score (`-0.75 / 6`, matching `0×1 - 3×0.25` exactly) with the answer key,
+explanations, and citations correctly revealed only at that point. Separately verified REVISION
+mode gives immediate right/wrong feedback with a real generated explanation, and renders no timer.
+No mocked step anywhere in either path.
+
+Full writeup, including the two documented external-infra caveats hit along the way (Groq's
+sustained rate ceiling under this session's load, and unrelated pre-existing migration drift on
+the local `studyflow_dev` database): [`docs/status/phase-4.md`](docs/status/phase-4.md). Every
+invented product number (mode semantics, the 90s/question timing formula, the −0.25 negative-
+marking fraction, the scoring formula) is logged with rationale in
 [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 Update this table at the end of every phase with real evidence (a command output or passing test),

@@ -50,9 +50,15 @@ the eval harness alongside MCQs, not before there's a batch feature to evaluate.
 
 ## Phase 4 — Quizzes
 
+**Status:** done, 2026-08-10.
+
 Server-authoritative timing, incremental answer saving, PRACTICE/EXAM/REVISION modes, scoring,
 result breakdowns, OMR-bubble UI motif (only makes sense once there are single-choice controls to
-skin).
+skin). Built as a thin wrapper around Phase 3's MCQ generation pipeline rather than a new
+generation path — see `docs/DECISIONS.md` and `docs/status/phase-4.md` for the full design
+(mode semantics, timing formula, negative marking) and verification detail. None of the quiz
+behavioural detail came from the master spec either — same `15-PENDING.md` gap as Phase 2/3's
+invented numbers.
 
 ## Phase 5 — Infra hardening
 

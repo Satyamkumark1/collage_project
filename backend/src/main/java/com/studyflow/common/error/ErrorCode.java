@@ -48,6 +48,14 @@ public enum ErrorCode {
     KEY_POINTS_NOT_FOUND(HttpStatus.NOT_FOUND),
     QUESTION_SET_NOT_FOUND(HttpStatus.NOT_FOUND),
     FLASHCARD_NOT_FOUND(HttpStatus.NOT_FOUND),
+    // Phase 4 (quizzes) — same "GET by id needs a not-found code" gap, plus two attempt-lifecycle
+    // conflict codes the spec table never anticipated (server-authoritative timing wasn't
+    // possible to fully spec ahead of time — see docs/DECISIONS.md).
+    QUIZ_NOT_FOUND(HttpStatus.NOT_FOUND),
+    QUIZ_ATTEMPT_NOT_FOUND(HttpStatus.NOT_FOUND),
+    QUIZ_ATTEMPT_EXPIRED(HttpStatus.CONFLICT),
+    QUIZ_ATTEMPT_NOT_IN_PROGRESS(HttpStatus.CONFLICT),
+    QUIZ_ATTEMPT_NOT_SUBMITTED(HttpStatus.CONFLICT),
     NOT_FOUND(HttpStatus.NOT_FOUND),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR);
 
