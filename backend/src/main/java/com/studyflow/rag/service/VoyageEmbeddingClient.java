@@ -3,6 +3,7 @@ package com.studyflow.rag.service;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.studyflow.jobs.domain.TransientJobException;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -20,14 +21,25 @@ import org.springframework.web.client.RestClient;
  * Calls Voyage AI's embeddings endpoint, batched (see specs/09-rag.md). Retryable failure
  * classes (5xx, 429, connection issues) surface as {@link TransientJobException} so the job
  * engine's own backoff/retry handles them — no separate retry loop here.
+ *
+ * <p>This account has no payment method on file: a hard 3 requests/minute, 10K tokens/minute cap
+ * (see docs/DECISIONS.md). Chunks target ~700 tokens (up to 1000, see DocumentChunker) — the old
+ * 32-chunk batch could be 22-32K tokens, several times the entire per-minute budget in one
+ * request, so it 429'd on essentially every real document regardless of retry/backoff. Batch size
+ * is capped to stay under the token budget per request, and calls are paced (synchronized,
+ * shared across concurrent jobs since this is a singleton bean) to stay under the request-count
+ * budget too — large documents now take proportionally longer instead of failing.
  */
 @Component
 public class VoyageEmbeddingClient implements EmbeddingClient {
 
-    private static final int BATCH_SIZE = 32;
+    private static final int BATCH_SIZE = 8;
+    private static final Duration MIN_INTERVAL_BETWEEN_CALLS = Duration.ofSeconds(21);
 
     private final RestClient restClient;
     private final String model;
+    private final Object rateLimitLock = new Object();
+    private Instant nextAllowedCallAt = Instant.EPOCH;
 
     public VoyageEmbeddingClient(@Value("${studyflow.ai.voyage.api-key}") String apiKey,
             @Value("${studyflow.ai.voyage.base-url}") String baseUrl,
@@ -80,7 +92,27 @@ public class VoyageEmbeddingClient implements EmbeddingClient {
         return "1";
     }
 
+    /** Blocks until this call's turn under the shared rate limit — see class javadoc. */
+    private void awaitRateLimitTurn() {
+        Instant myTurn;
+        synchronized (rateLimitLock) {
+            Instant now = Instant.now();
+            myTurn = nextAllowedCallAt.isAfter(now) ? nextAllowedCallAt : now;
+            nextAllowedCallAt = myTurn.plus(MIN_INTERVAL_BETWEEN_CALLS);
+        }
+        Duration wait = Duration.between(Instant.now(), myTurn);
+        if (wait.isPositive()) {
+            try {
+                Thread.sleep(wait);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new TransientJobException("Interrupted while pacing Voyage embedding calls", e);
+            }
+        }
+    }
+
     private List<float[]> embedBatch(List<String> batch) {
+        awaitRateLimitTurn();
         EmbeddingResponse response;
         try {
             response = restClient.post()
