@@ -5,6 +5,40 @@ Silent deviation is the failure mode; this log is what makes deviation legitimat
 
 ---
 
+## 2026-08-11 — Deployment pivot: split frontend (Vercel) / backend (Render), not single-jar
+
+**What changed:** Supersedes this log's own previous entry's "single-jar bundling" half (the
+Supabase Storage / Neon / Render-for-compute half of that entry stands unchanged). User decision:
+frontend deploys to Vercel, backend to Render, as two origins — not bundled into one image.
+`SpaWebConfig` (added in the superseded entry) is deleted — it only activated when a frontend
+build was present in `classpath:/static/`, which no longer happens. The root `Dockerfile` is
+back to backend-only (no frontend build stage). `frontend/vercel.json` added for React Router's
+client-side-route rewrite. `studyflow.cookie.same-site` changes from `Strict` to `None` in the
+base (prod) config — `Strict`/`Lax` both silently drop the refresh cookie on any cross-origin
+fetch, which is now every request in prod, not just the login page. `None` requires `secure:
+true`, already the base config's setting.
+
+**Why:** The previous entry chose single-image bundling specifically to avoid this exact
+cross-origin cookie problem without touching `SameSite`. The user's explicit preference is to
+deploy the frontend on Vercel regardless, so the problem has to be solved head-on instead of
+avoided. It turned out most of the groundwork already existed and predates this deployment work
+entirely: `frontend/src/api/client.ts` already sends `credentials: "include"` on every request and
+already reads `VITE_API_BASE_URL` as a configurable API origin, and `SecurityConfig`'s CORS
+config already sets `allowCredentials(true)` against a single explicit origin (never a wildcard)
+— this frontend was apparently always written with a split deployment in mind, single-jar
+bundling was the deviation, not the other way around.
+
+**What it costs:** `SameSite=None` removes the browser-level CSRF mitigation that `Strict`
+provided — but the refresh/logout endpoints' actual CSRF mitigation was never `SameSite` in the
+first place, it's the required `X-Request-Id` header (see `SecurityConfig`'s class javadoc,
+predates this change), which doesn't depend on cookie attributes and `client.ts` already sends
+unconditionally. So this is a no-op on the real protection, not a weakening of it. Frontend and
+backend now deploy independently (can update one without redeploying the other) at the cost of
+one more moving piece to keep in sync (`VITE_API_BASE_URL` on Vercel must track the Render URL,
+`CORS_ALLOWED_ORIGIN` on Render must track the Vercel URL). Full runbook: `docs/DEPLOYMENT.md`.
+
+---
+
 ## 2026-08-11 — Free-tier deployment: Supabase Storage, single-jar bundling, Render
 
 **What changed:** Added `SupabaseStorageProvider` (`RestClient` over Supabase Storage's REST API,
