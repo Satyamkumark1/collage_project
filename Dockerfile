@@ -4,7 +4,7 @@
 FROM eclipse-temurin:21-jdk AS backend-build
 WORKDIR /app
 COPY backend/.mvn .mvn
-COPY backend/mvnw pom.xml ./
+COPY backend/mvnw backend/pom.xml ./
 RUN ./mvnw -B -q dependency:go-offline
 COPY backend/src ./src
 RUN ./mvnw -B -q -DskipTests package
