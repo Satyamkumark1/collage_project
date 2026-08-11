@@ -56,10 +56,16 @@ public class VoyageEmbeddingClient implements EmbeddingClient {
 
     @Override
     public List<float[]> embed(List<String> texts) {
+        return embed(texts, ignored -> { });
+    }
+
+    @Override
+    public List<float[]> embed(List<String> texts, java.util.function.IntConsumer onBatchEmbedded) {
         List<float[]> results = new ArrayList<>(texts.size());
         for (int i = 0; i < texts.size(); i += BATCH_SIZE) {
             List<String> batch = texts.subList(i, Math.min(i + BATCH_SIZE, texts.size()));
             results.addAll(embedBatch(batch));
+            onBatchEmbedded.accept(results.size());
         }
         return results;
     }

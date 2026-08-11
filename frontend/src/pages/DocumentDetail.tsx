@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { getDocument, type DocumentResponse } from "../api/documents";
 import { listSummaries, requestSummary } from "../api/summaries";
@@ -14,6 +14,11 @@ export function DocumentDetail() {
   const documentId = id!;
   const queryClient = useQueryClient();
   const [activeSummaryJobId, setActiveSummaryJobId] = useState<string | null>(null);
+  const location = useLocation();
+  // Only set right after a fresh upload (see Upload.tsx); revisiting from the Library list
+  // mid-ingestion falls back to the coarse status-based bar below, no jobId to poll.
+  const activeIngestJobId =
+    (location.state as { jobId?: string } | null | undefined)?.jobId ?? null;
 
   const documentQuery = useQuery({
     queryKey: ["document", documentId],
@@ -77,13 +82,23 @@ export function DocumentDetail() {
       {INGESTING_STATUSES.includes(doc.status) && (
         <div className="card stack-sm" aria-live="polite">
           <strong>Reading your document…</strong>
-          <div className="progress-track">
-            <div
-              className="progress-fill"
-              style={{ width: doc.status === "UPLOADED" ? "10%" : doc.status === "PARSING" ? "40%" : doc.status === "CHUNKING" ? "65%" : "85%" }}
+          {activeIngestJobId ? (
+            <JobProgress
+              jobId={activeIngestJobId}
+              label="Ingestion"
+              onTerminal={() => void queryClient.invalidateQueries({ queryKey: ["document", documentId] })}
             />
-          </div>
-          <span className="hint">This usually takes under a minute.</span>
+          ) : (
+            <>
+              <div className="progress-track">
+                <div
+                  className="progress-fill"
+                  style={{ width: doc.status === "UPLOADED" ? "10%" : doc.status === "PARSING" ? "40%" : doc.status === "CHUNKING" ? "65%" : "85%" }}
+                />
+              </div>
+              <span className="hint">Larger documents can take a few minutes.</span>
+            </>
+          )}
         </div>
       )}
 
