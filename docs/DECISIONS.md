@@ -5,6 +5,40 @@ Silent deviation is the failure mode; this log is what makes deviation legitimat
 
 ---
 
+## 2026-08-11 — Fixed: large-document ingestion permanently failed on Voyage's free tier
+
+**What changed:** Found live on the Render deployment — a real 8.7MB PDF got stuck in `EMBEDDING`
+for minutes, would have eventually hit `FAILED` (job engine's 3-attempt cap). Root cause:
+`VoyageEmbeddingClient`'s `BATCH_SIZE` was 32, but `DocumentChunker` targets ~700 tokens per chunk
+(up to 1000) — a full batch could be 22-32K tokens, several times this account's entire 10K-
+tokens/minute cap (see the existing "Voyage AI account has no payment method" entry below) in one
+request. It 429'd on essentially any real multi-batch document regardless of the job engine's
+retry/backoff, and every retry re-embedded from scratch (no partial checkpointing), burning
+budget faster than it recovered. `BATCH_SIZE` dropped to 8 (comfortably under the token cap even
+at max chunk size), and `embedBatch` now goes through a synchronized `awaitRateLimitTurn()` that
+paces every call to at least 21s apart — shared across the singleton bean, so concurrent jobs
+can't collectively exceed the 3-requests/minute cap either.
+
+**Why:** Proactively pacing to stay under both caps turns "429, retry, burn budget, eventually
+fail for any sufficiently large document" into "take proportionally longer, always succeed" — the
+same trade the UI's own copy already assumes (`DocumentDetail.tsx`'s ingesting-card hint already
+says "Larger documents can take a few minutes"). Fixing token-per-request and requests-per-minute
+together, rather than just adding delay, matters because delay alone doesn't help if a single
+batch already exceeds the whole per-minute token budget on its own.
+
+**What it costs:** Large documents now take real wall-clock time proportional to chunk count (an
+8.7MB PDF needing ~15 batches is ~5 minutes of pure pacing, on top of actual API latency) — a
+UX-visible slowdown, not a bug. `VoyageEmbeddingClient` is a Spring singleton, so this pacing
+state is shared and cumulative across the whole test suite too: integration tests that call
+`embed()` more than once in the same JVM run will now queue behind each other at 21s apart,
+same as production would. That's slower `mvn test` runs, but it's testing the same real pacing
+behavior production relies on rather than a fast path that would hide this exact bug — no bypass
+added. Could not run the real integration suite locally to confirm end-to-end (no Docker daemon
+available in this session, and `TestcontainersPostgresExtension` needs one) — verified via clean
+compile and code review only; the live redeploy is the real verification.
+
+---
+
 ## 2026-08-11 — Deployment pivot: split frontend (Vercel) / backend (Render), not single-jar
 
 **What changed:** Supersedes this log's own previous entry's "single-jar bundling" half (the
