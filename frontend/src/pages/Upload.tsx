@@ -15,7 +15,7 @@ export function Upload() {
   const mutation = useMutation({
     mutationFn: (file: File) => uploadDocument(file),
     onSuccess: (result) => {
-      navigate(`/documents/${result.documentId}`);
+      navigate(`/documents/${result.documentId}`, { state: { jobId: result.jobId } });
     },
   });
 

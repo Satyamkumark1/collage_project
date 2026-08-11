@@ -74,7 +74,9 @@ public class RagIngestionServiceImpl implements RagIngestionService {
         stageCallback.accept(Stage.EMBEDDING);
         progress.report(60, "EMBEDDING");
         List<String> texts = savedChunks.stream().map(DocumentChunk::getContent).toList();
-        List<float[]> embeddings = embeddingClient.embed(texts);
+        int totalTexts = texts.size();
+        List<float[]> embeddings = embeddingClient.embed(texts,
+                embedded -> progress.report(60 + (int) (30.0 * embedded / totalTexts), "EMBEDDING"));
         if (embeddings.size() != savedChunks.size()) {
             throw new TransientJobException("Embedding provider returned " + embeddings.size() + " vectors for "
                     + savedChunks.size() + " chunks");
