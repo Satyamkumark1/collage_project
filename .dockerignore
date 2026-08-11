@@ -1,0 +1,11 @@
+**/.git
+**/node_modules
+**/target
+**/dist
+**/.env
+**/.env.*
+storage-local
+eval/results
+docs
+specs
+*.md

@@ -1,3 +1,7 @@
+server:
+  # Render (and most PaaS free tiers) assign the listen port via $PORT at runtime.
+  port: ${PORT:8080}
+
 spring:
   application:
     name: StudyFlowBackend
@@ -51,7 +55,14 @@ studyflow:
     same-site: Strict
     refresh-ttl-days: 30
   storage:
+    # local (default, STORAGE_LOCAL_ROOT) or supabase (persistent, for hosts with ephemeral
+    # disk — see SupabaseStorageProvider / docs/DECISIONS.md).
+    provider: ${STORAGE_PROVIDER:local}
     local-root: ${STORAGE_LOCAL_ROOT}
+    supabase:
+      url: ${SUPABASE_URL}
+      service-key: ${SUPABASE_SERVICE_KEY}
+      bucket: ${SUPABASE_STORAGE_BUCKET:studyflow-documents}
   redis:
     upstash:
       rest-url: ${UPSTASH_REDIS_REST_URL}
