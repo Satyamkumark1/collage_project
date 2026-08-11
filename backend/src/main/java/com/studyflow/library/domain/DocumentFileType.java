@@ -1,8 +1,10 @@
 package com.studyflow.library.domain;
 
-/** DOCX/PPTX are deferred — see specs/00-product-and-constraints.md deviation #8. */
+/** DOCX/PPTX added Phase 5 — see docs/DECISIONS.md. */
 public enum DocumentFileType {
     PDF,
     TXT,
-    MD
+    MD,
+    DOCX,
+    PPTX
 }

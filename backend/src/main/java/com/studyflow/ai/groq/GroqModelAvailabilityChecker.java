@@ -34,10 +34,13 @@ public class GroqModelAvailabilityChecker implements ApplicationRunner {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(Duration.ofSeconds(5));
         requestFactory.setReadTimeout(Duration.ofSeconds(10));
+        // api-key can now be a comma-separated pool (see GroqAiProvider/docs/DECISIONS.md) — this
+        // is a one-off startup check, so just the first key is enough, never all of them.
+        String firstApiKey = apiKey.split(",", 2)[0].strip();
         this.restClient = RestClient.builder()
                 .baseUrl(baseUrl)
                 .requestFactory(requestFactory)
-                .defaultHeader("Authorization", "Bearer " + apiKey)
+                .defaultHeader("Authorization", "Bearer " + firstApiKey)
                 .build();
         this.summaryModel = summaryModel;
     }

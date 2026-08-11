@@ -1,8 +1,10 @@
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/studyflow_test
-    username: cashify
-    password:
+    # Set by TestcontainersPostgresExtension's static initializer before any context loads — see
+    # docs/DECISIONS.md. Never the real .env DB_URL: JVM system properties outrank OS env vars.
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
   jpa:
     hibernate:
       ddl-auto: validate
@@ -16,6 +18,22 @@ spring:
     multipart:
       max-file-size: 26MB
       max-request-size: 27MB
+  security:
+    oauth2:
+      client:
+        registration:
+          # Dummy values: no test drives a real OAuth2Login redirect (needs a real browser
+          # consent screen), these only exist so ClientRegistrationRepository has a bean to
+          # satisfy SecurityConfig's .oauth2Login(...) at context-load time. See
+          # OAuth2UserInfoResolverTest / AuthServiceTest for what's actually exercised.
+          google:
+            client-id: test-google-client-id
+            client-secret: test-google-client-secret
+            scope: openid,email,profile
+          github:
+            client-id: test-github-client-id
+            client-secret: test-github-client-secret
+            scope: read:user,user:email
 
 studyflow:
   jwt:
@@ -27,13 +45,19 @@ studyflow:
     issuer: studyflow-ai
     audience: studyflow-ai-clients
   cors:
-    allowed-origin: http://localhost:5173
+    allowed-origin: http://localhost:5183
+  oauth2:
+    frontend-redirect-origin: http://localhost:5183
   cookie:
     secure: false
     same-site: Lax
     refresh-ttl-days: 30
   storage:
     local-root: /tmp/studyflow-test-storage
+  redis:
+    upstash:
+      rest-url: ${UPSTASH_REDIS_REST_URL}
+      rest-token: ${UPSTASH_REDIS_REST_TOKEN}
   upload:
     max-file-size-bytes: 26214400
   quota:
@@ -47,6 +71,7 @@ studyflow:
       model: voyage-4-lite
     groq:
       api-key: ${GROQ_API_KEY}
+      api-keys: ${GROQ_API_KEYS:${GROQ_API_KEY}}
       base-url: https://api.groq.com/openai/v1
       models:
         summary: openai/gpt-oss-120b

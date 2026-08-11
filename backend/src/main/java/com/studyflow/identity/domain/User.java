@@ -42,8 +42,10 @@ public class User {
     @Column(name = "email_verified_at")
     private Instant emailVerifiedAt;
 
-    @Column(name = "birth_year", nullable = false)
-    private short birthYear;
+    // Nullable: OAuth sign-ins (Google/GitHub) create the account before birth year is known —
+    // see docs/DECISIONS.md. Callers must check hasBirthYear() before isMinor().
+    @Column(name = "birth_year")
+    private Short birthYear;
 
     @Column(name = "guardian_consent_at")
     private Instant guardianConsentAt;
@@ -76,11 +78,15 @@ public class User {
         // JPA
     }
 
-    public User(String email, String passwordHash, String name, short birthYear) {
+    public User(String email, String passwordHash, String name, Short birthYear) {
         this.email = email;
         this.passwordHash = passwordHash;
         this.name = name;
         this.birthYear = birthYear;
+    }
+
+    public boolean hasBirthYear() {
+        return birthYear != null;
     }
 
     /**
@@ -89,6 +95,9 @@ public class User {
      * their birthday yet this calendar year — treat them as a minor through the end of that
      * anniversary year rather than assuming the birthday has already passed, so the DPDP consent
      * gate never under-triggers.
+     *
+     * <p>Callers must check {@link #hasBirthYear()} first — birth year is unset for OAuth
+     * sign-ins until the post-login profile step completes.
      */
     public boolean isMinor() {
         int age = Year.now(ZoneId.of("Asia/Kolkata")).getValue() - birthYear;
@@ -133,8 +142,12 @@ public class User {
         this.emailVerifiedAt = emailVerifiedAt;
     }
 
-    public short getBirthYear() {
+    public Short getBirthYear() {
         return birthYear;
+    }
+
+    public void setBirthYear(Short birthYear) {
+        this.birthYear = birthYear;
     }
 
     public Instant getGuardianConsentAt() {

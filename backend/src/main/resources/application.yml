@@ -18,6 +18,18 @@ spring:
     multipart:
       max-file-size: 26MB
       max-request-size: 27MB
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope: openid,email,profile
+          github:
+            client-id: ${GITHUB_CLIENT_ID}
+            client-secret: ${GITHUB_CLIENT_SECRET}
+            scope: read:user,user:email
 
 studyflow:
   jwt:
@@ -27,6 +39,10 @@ studyflow:
     audience: studyflow-ai-clients
   cors:
     allowed-origin: ${CORS_ALLOWED_ORIGIN}
+  oauth2:
+    # Frontend origin to redirect back to after a successful/failed OAuth handshake — see
+    # com.studyflow.identity.oauth.OAuth2LoginSuccessHandler/FailureHandler.
+    frontend-redirect-origin: ${CORS_ALLOWED_ORIGIN}
   cookie:
     # Secure defaults for this base config (used as-is in prod). Local dev runs with the
     # `local` profile active (see application-local.yml, run-dev.sh) which overrides these to
@@ -36,6 +52,10 @@ studyflow:
     refresh-ttl-days: 30
   storage:
     local-root: ${STORAGE_LOCAL_ROOT}
+  redis:
+    upstash:
+      rest-url: ${UPSTASH_REDIS_REST_URL}
+      rest-token: ${UPSTASH_REDIS_REST_TOKEN}
   upload:
     max-file-size-bytes: 26214400 # 25 MiB
   quota:
@@ -49,6 +69,10 @@ studyflow:
       model: voyage-4-lite
     groq:
       api-key: ${GROQ_API_KEY}
+      # Comma-separated pool for GroqAiProvider to round-robin across (see docs/DECISIONS.md) —
+      # each Groq account has its own independent rate-limit budget, so N keys ~= N x the request
+      # budget. Falls back to the single api-key above if GROQ_API_KEYS isn't set.
+      api-keys: ${GROQ_API_KEYS:${GROQ_API_KEY}}
       base-url: https://api.groq.com/openai/v1
       models:
         summary: openai/gpt-oss-120b

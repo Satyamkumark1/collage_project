@@ -12,7 +12,9 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -41,18 +43,33 @@ public class GroqAiProvider implements AiProvider {
 
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
+    private final List<String> apiKeys;
+    private final AtomicInteger nextKeyIndex = new AtomicInteger();
 
-    public GroqAiProvider(@Value("${studyflow.ai.groq.api-key}") String apiKey,
+    public GroqAiProvider(@Value("${studyflow.ai.groq.api-keys}") String apiKeysConfig,
             @Value("${studyflow.ai.groq.base-url}") String baseUrl, ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
+        this.apiKeys = Arrays.stream(apiKeysConfig.split(",")).map(String::strip).filter(k -> !k.isEmpty()).toList();
+        if (apiKeys.isEmpty()) {
+            throw new IllegalStateException("studyflow.ai.groq.api-keys resolved to no usable keys");
+        }
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(Duration.ofSeconds(10));
         requestFactory.setReadTimeout(Duration.ofSeconds(150));
-        this.restClient = RestClient.builder()
-                .baseUrl(baseUrl)
-                .requestFactory(requestFactory)
-                .defaultHeader("Authorization", "Bearer " + apiKey)
-                .build();
+        // No defaultHeader here — Authorization varies per call, see #nextApiKey.
+        this.restClient = RestClient.builder().baseUrl(baseUrl).requestFactory(requestFactory).build();
+    }
+
+    /**
+     * Round-robins across every configured Groq account — each has its own independent rate-limit
+     * budget, so N keys multiplies the effective request budget by N (see docs/DECISIONS.md).
+     * Plain counter, not "retry a different key on 429": the job engine's own backoff/retry
+     * already re-invokes {@link #complete}/{@link #streamComplete} on transient failure, and each
+     * fresh invocation naturally advances to the next key — no separate retry loop needed here.
+     */
+    private String nextApiKey() {
+        int index = Math.floorMod(nextKeyIndex.getAndIncrement(), apiKeys.size());
+        return apiKeys.get(index);
     }
 
     record ChatMessage(String role, String content) {
@@ -116,6 +133,7 @@ public class GroqAiProvider implements AiProvider {
         try {
             response = restClient.post()
                     .uri("/chat/completions")
+                    .header("Authorization", "Bearer " + nextApiKey())
                     .body(body)
                     .retrieve()
                     .body(ChatCompletionResponseBody.class);
@@ -159,6 +177,7 @@ public class GroqAiProvider implements AiProvider {
         try {
             restClient.post()
                     .uri("/chat/completions")
+                    .header("Authorization", "Bearer " + nextApiKey())
                     .body(body)
                     .exchange((req, resp) -> {
                         consumeStream(resp, start, request.model(), listener);

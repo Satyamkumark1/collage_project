@@ -1,8 +1,9 @@
-import { Link, Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import type { ReactNode } from "react";
 import { useAuth } from "./context/AuthContext";
 import { Register } from "./pages/Register";
 import { Login } from "./pages/Login";
+import { CompleteProfile } from "./pages/CompleteProfile";
 import { Library } from "./pages/Library";
 import { Upload } from "./pages/Upload";
 import { DocumentDetail } from "./pages/DocumentDetail";
@@ -11,13 +12,15 @@ import { KeyPoints } from "./pages/KeyPoints";
 import { Mcqs } from "./pages/Mcqs";
 import { Flashcards } from "./pages/Flashcards";
 import { Quizzes } from "./pages/Quizzes";
+import { StudyPlanner } from "./pages/StudyPlanner";
 import { QuizAttempt } from "./pages/QuizAttempt";
 import { QuizResult } from "./pages/QuizResult";
 import { useQuery } from "@tanstack/react-query";
 import { listDueFlashcards } from "./api/flashcards";
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
-  const { status } = useAuth();
+  const { status, user } = useAuth();
+  const location = useLocation();
 
   if (status === "loading") {
     return (
@@ -29,6 +32,9 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   }
   if (status === "unauthenticated") {
     return <Navigate to="/login" replace />;
+  }
+  if (user?.birthYearRequired && location.pathname !== "/complete-profile") {
+    return <Navigate to="/complete-profile" replace />;
   }
   return <>{children}</>;
 }
@@ -48,9 +54,10 @@ function NavBar() {
   return (
     <nav className="nav-bar">
       <Link to="/library" className="nav-brand">
-        StudyFlow AI
+        <span>✨</span> StudyFlow AI
       </Link>
-      {status === "authenticated" && (
+
+      {status === "authenticated" ? (
         <div className="nav-links">
           {dueCount > 0 && (
             <span className="badge" style={{ borderColor: "var(--highlight)", color: "var(--highlight)" }}>
@@ -70,6 +77,19 @@ function NavBar() {
             Log out
           </button>
         </div>
+      ) : (
+        <div className="nav-links">
+          <Link to="/login" className="link-button" style={{ fontWeight: 600, color: "#4f46e5" }}>
+            Log in
+          </Link>
+          <Link
+            to="/register"
+            className="button btn-primary-indigo"
+            style={{ padding: "0.45rem 1rem", fontSize: "0.88rem", textDecoration: "none" }}
+          >
+            Get Started Free
+          </Link>
+        </div>
       )}
     </nav>
   );
@@ -82,6 +102,14 @@ export default function App() {
       <Routes>
         <Route path="/register" element={<Register />} />
         <Route path="/login" element={<Login />} />
+        <Route
+          path="/complete-profile"
+          element={
+            <ProtectedRoute>
+              <CompleteProfile />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/library"
           element={
@@ -162,7 +190,15 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-        <Route path="/" element={<Navigate to="/library" replace />} />
+        <Route
+          path="/documents/:id/planner"
+          element={
+            <ProtectedRoute>
+              <StudyPlanner />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="/" element={<Login />} />
         <Route path="*" element={<Navigate to="/library" replace />} />
       </Routes>
     </>

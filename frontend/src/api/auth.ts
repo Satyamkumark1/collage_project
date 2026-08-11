@@ -31,6 +31,7 @@ export interface MeResponse {
   emailVerified: boolean;
   isMinor: boolean;
   guardianConsentRequired: boolean;
+  birthYearRequired: boolean;
 }
 
 export function register(payload: RegisterRequest): Promise<RegisterResponse> {
@@ -51,4 +52,8 @@ export function logout(): Promise<void> {
 
 export function me(): Promise<MeResponse> {
   return apiRequest<MeResponse>("/me");
+}
+
+export function completeBirthYear(birthYear: number): Promise<MeResponse> {
+  return apiRequest<MeResponse>("/me/birth-year", { method: "PATCH", body: { birthYear } });
 }

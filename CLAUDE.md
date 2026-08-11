@@ -87,9 +87,9 @@ Phase detail and sequencing: [`specs/ROADMAP.md`](specs/ROADMAP.md).
 | 2 — Tutor chat + retrieval | Done | 2026-08-08 | See below. |
 | 3 — Batch study generation (MCQs/flashcards) + eval harness | Done | 2026-08-09 | See below. |
 | 4 — Quizzes | Done | 2026-08-10 | See below. |
-| 5 — Infra hardening (Cloudinary/Redis/Testcontainers/observability) | Not started | — | — |
-| 6 — Billing | Not started | — | — |
-| 7 — Planner, exports, admin | Not started | — | — |
+| 5 — Infra hardening (Redis/Testcontainers/observability; Cloudinary dropped) | In progress | 2026-08-11 | See below. |
+| 6 — Billing | Dropped (user decision) | 2026-08-11 | No Razorpay — see `docs/DECISIONS.md`. |
+| 7 — Planner, exports, admin | In progress (planner done) | 2026-08-11 | See below. |
 
 ### Phase 1 exit-criteria evidence
 
@@ -222,6 +222,109 @@ the local `studyflow_dev` database): [`docs/status/phase-4.md`](docs/status/phas
 invented product number (mode semantics, the 90s/question timing formula, the −0.25 negative-
 marking fraction, the scoring formula) is logged with rationale in
 [`docs/DECISIONS.md`](docs/DECISIONS.md).
+
+### Phase 5 exit-criteria evidence (first slice: DOCX/PPTX ingestion + login rate limiting)
+
+Phase 5 bundles five tracks (Cloudinary, Redis, Testcontainers, observability, DOCX/PPTX parsing);
+three remain blocked on external accounts/tools not yet available in this environment (Cloudinary
+credentials, an Upstash Redis account or local Redis, Docker for Testcontainers) and observability
+needs a stack decision. The two tracks needing no external accounts landed first:
+
+```
+cd backend && set -a && source .env && set +a \
+  && ./mvnw test -Dtest=ArchitectureTest,DocxDocumentParserTest,PptxDocumentParserTest,\
+DocumentUploadIntegrationTest,PptxIngestionIntegrationTest,LoginRateLimiterTest,\
+LoginRateLimitIntegrationTest,AuthFlowIntegrationTest
+```
+
+`ArchitectureTest` stays 28/28 (neither checkpoint adds an owner-scoped repository).
+`DocxDocumentParserTest`/`PptxDocumentParserTest` (7 tests, plain JUnit, no Spring context) pass
+deterministically. `DocumentUploadIntegrationTest` (7 tests, 3 new DOCX/PPTX/renamed-zip cases) and
+`PptxIngestionIntegrationTest` (1 test, real Postgres + real Voyage embeddings — DOCX not
+duplicated here since its pipeline shape is already proven by the existing TXT/MD end-to-end test)
+pass against real infra. `LoginRateLimiterTest` (5 tests, deterministic via an injected `Clock`,
+no real waiting) and `LoginRateLimitIntegrationTest` (2 tests, real Postgres, real HTTP) pass, and
+the pre-existing `AuthFlowIntegrationTest` (6 tests) confirmed no regression.
+
+Frontend: `tsc -b` strict-mode clean, `oxlint` passes with one pre-existing unrelated warning
+(same as every prior phase — not added this phase), `npm run build` clean.
+
+Manually verified against a running local instance (pointed at `studyflow_test`, not
+`studyflow_dev` — same pre-existing migration-drift workaround as Phase 4, see
+`docs/DECISIONS.md`): uploaded a real `.docx` and a real `.pptx` via `curl`, both reached `READY`
+with the correct `fileType`/`mimeType`/`charCount`. Separately, 5 real failed logins against a real
+registered account followed by a 6th returned:
+
+```text
+HTTP/1.1 429
+Retry-After: 60
+{"status":429,"title":"RATE_LIMITED","code":"RATE_LIMITED","retryAfterSeconds":60}
+```
+
+Every invented number (POI dependency version, the 200 MiB zip-entry cap, the 300-slide cap, the
+exponential-lockout formula, the 2h idle-eviction window) is logged with rationale in
+[`docs/DECISIONS.md`](docs/DECISIONS.md).
+
+### Phase 5 exit-criteria evidence (second slice: Redis L2 login-lock durability)
+
+Cloudinary and Razorpay are permanently out (user decision, 2026-08-11 — see
+`docs/DECISIONS.md`); Redis (Upstash) and Docker are now available instead. First Redis slice: L2
+durably backstops the L1 login-lockout so a restart can't reset an active lock — see
+`docs/DECISIONS.md` for the design (REST API, not a TCP client; SHA-256 keys; fail-open).
+
+```
+cd backend && set -a && source .env && set +a \
+  && ./mvnw test -Dtest=LoginRateLimiterTest,LoginRateLimitIntegrationTest,ArchitectureTest,AuthFlowIntegrationTest
+```
+
+`LoginRateLimiterTest` (5 tests, `Clock` + a no-op `LoginLockStore` stub, still fully deterministic
+and network-free) and `LoginRateLimitIntegrationTest` (3 tests, real Postgres + real Upstash —
+including `aLockKnownOnlyToRedisStillBlocksLogin`, which seeds L2 directly to prove the exact
+post-restart scenario without actually restarting the app) both pass. `ArchitectureTest` unaffected
+at 32/32. `AuthFlowIntegrationTest` (6 tests) confirms no regression on the login path.
+
+### Phase 5 exit-criteria evidence (third slice: Testcontainers)
+
+Docker is available now (user decision, 2026-08-11); integration tests run against a real,
+Testcontainers-managed `pgvector/pgvector:pg15` container instead of the shared local Homebrew
+Postgres — one container per JVM/surefire fork, via a JUnit5 global extension, so none of the 16
+existing `@SpringBootTest` classes needed editing. See `docs/DECISIONS.md` for the design and a
+real, previously-hidden migration-ordering bug (V7 uses the `vector` type before V10 creates the
+extension) this surfaced and fixed.
+
+```
+cd backend && set -a && source .env && set +a && ./mvnw test
+```
+
+101/109 passed in one full run. The 8 failures: the already-documented Groq/Voyage rate-limit
+shape (7, same caveat as every prior phase) plus one `JobDispatcherIntegrationTest` timing flake
+under full-suite load — confirmed 4/4 passing standalone immediately after, not a Testcontainers
+regression.
+
+### Phase 7 exit-criteria evidence (first slice: study planner)
+
+Started ahead of finishing Phase 5's remaining tracks / Phase 6 — both blocked on external
+credentials (Cloudinary, Redis, Testcontainers, Razorpay); the planner needs none. See
+`docs/DECISIONS.md` for why plan build is synchronous rather than the async job
+`specs/01-architecture.md` originally classified it as.
+
+```
+cd backend && set -a && source .env && set +a \
+  && ./mvnw test -Dtest=ArchitectureTest,StudySessionSchedulerTest,StudyPlanIntegrationTest
+```
+
+`ArchitectureTest` (32/32, up from 28 — 4 new for `StudyPlanRepository`/`StudySessionRepository`)
+and `StudySessionSchedulerTest` (5 cases, pure function, no Spring context) pass deterministically.
+`StudyPlanIntegrationTest` (2 tests: full create→list→get→`.ics`-export round trip, not-found) —
+real Postgres, and deliberately **no Groq/Voyage call anywhere in the feature** (plan build is pure
+scheduling arithmetic), so this is the first study-feature integration test with zero real-API
+rate-limit fragility.
+
+Frontend: `tsc -b` strict-mode clean, `oxlint` clean (no new warnings), `npm run build` clean.
+
+Full writeup: [`docs/status/phase-7.md`](docs/status/phase-7.md). Every invented number (the
+`{21,14,10,7,5,3,2,1,0}` days-before-exam cadence) is logged with rationale in
+[`docs/DECISIONS.md`](docs/DECISIONS.md). Exports and the admin panel are not started.
 
 Update this table at the end of every phase with real evidence (a command output or passing test),
 not a checkmark.
