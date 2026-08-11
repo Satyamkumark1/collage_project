@@ -1,9 +1,9 @@
 # Deployment — free tier
 
-One Docker image (frontend bundled into the backend jar, see root `Dockerfile`) on Render's free
-web service, talking to free-tier Neon (Postgres + pgvector), Supabase Storage, and Upstash
-(Redis). Groq and Voyage AI stay external, same as local dev. See `docs/DECISIONS.md` for why
-this shape was chosen over the alternatives.
+Two services, two origins: frontend on Vercel, backend on Render (Docker, backend-only image),
+talking to free-tier Neon (Postgres + pgvector), Supabase Storage, and Upstash (Redis). Groq and
+Voyage AI stay external, same as local dev. See `docs/DECISIONS.md` for why this shape was chosen
+(and superseded an earlier single-image plan).
 
 ## 1. Neon — database
 
@@ -40,25 +40,13 @@ from its REST API tab.
 Reuse the same keys as local dev, or issue separate ones if you want prod usage tracked
 separately. `GROQ_API_KEY` (optionally `GROQ_API_KEYS` — comma-separated pool), `VOYAGE_API_KEY`.
 
-## 5. Google / GitHub OAuth apps
+## 5. Render — backend
 
-Add the production redirect URI to each app's existing console entry (same app as local dev
-works — most providers allow multiple redirect URIs, no need for a second app):
-
-- Google Cloud Console → Credentials → your OAuth client → Authorized redirect URIs → add
-  `https://<your-render-domain>/login/oauth2/code/google`
-- GitHub → Settings → Developer settings → OAuth Apps → your app → add
-  `https://<your-render-domain>/login/oauth2/code/github`
-
-(Spring Security's default redirect template is `{baseUrl}/login/oauth2/code/{registrationId}` —
-no custom override in this codebase, so those are the exact paths.)
-
-## 6. Render — compute
-
-1. New → Web Service → connect this repo. Render auto-detects the root `Dockerfile`; no build
-   command needed.
+1. New → Web Service → connect this repo, branch `main`. Render auto-detects the root
+   `Dockerfile` (backend-only — see `docs/DECISIONS.md`); no build command needed.
 2. Free instance type. Set the environment variables below.
-3. Deploy. First boot runs Flyway migrations against Neon.
+3. Deploy. First boot runs Flyway migrations against Neon. Render assigns a URL like
+   `https://studyflow-backend.onrender.com` — you need this for steps 6 and 7.
 
 ### Environment variables to set on Render
 
@@ -66,7 +54,7 @@ no custom override in this codebase, so those are the exact paths.)
 |---|---|
 | `DB_URL`, `DB_USER`, `DB_PASSWORD` | from Neon |
 | `JWT_SECRET` | new secret, **don't reuse the dev one** — `openssl rand -base64 64 \| tr -d '\n'` |
-| `CORS_ALLOWED_ORIGIN` | your Render URL itself, e.g. `https://studyflow.onrender.com` (frontend and backend share this origin — see `docs/DECISIONS.md`) |
+| `CORS_ALLOWED_ORIGIN` | your **Vercel** URL (step 6), e.g. `https://studyflow.vercel.app` — this is the frontend origin CORS allows, not Render's own URL |
 | `STORAGE_PROVIDER` | `supabase` |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SUPABASE_STORAGE_BUCKET` | from Supabase |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | from Upstash |
@@ -78,8 +66,42 @@ no custom override in this codebase, so those are the exact paths.)
 `STORAGE_LOCAL_ROOT` needed in prod (only read when `STORAGE_PROVIDER=local`, the local-dev
 default). No `spring.profiles.active=local` either — that profile's relaxed cookie settings
 (`secure: false`, `same-site: Lax`) are a local-only deviation for plain `http://localhost`; prod
-runs the base config's `secure: true` / `same-site: Strict` as-is, which works here because
-frontend and backend share one origin.
+runs the base config's `secure: true` / `same-site: None`, needed because frontend and backend
+are different origins (see `docs/DECISIONS.md`).
+
+You'll come back and update `CORS_ALLOWED_ORIGIN` once Vercel assigns its URL in step 6, if you
+do Render first — order between steps 5 and 6 doesn't matter, just close the loop on both env
+vars (`CORS_ALLOWED_ORIGIN` on Render, `VITE_API_BASE_URL` on Vercel) once both URLs exist.
+
+## 6. Vercel — frontend
+
+1. vercel.com → New Project → import this repo.
+2. **Root Directory: `frontend`** (the repo root isn't the frontend app — Vercel needs to build
+   from the `frontend/` subfolder). Framework preset auto-detects as Vite.
+3. Build command / output directory: leave the Vite defaults (`npm run build`, `dist`).
+4. Environment variable: `VITE_API_BASE_URL` = `https://<your-render-domain>/api/v1` (from step
+   5's Render URL — e.g. `https://studyflow-backend.onrender.com/api/v1`).
+5. Deploy. `frontend/vercel.json` (SPA rewrite to `index.html`) is already in the repo, so
+   React Router's client-side routes survive a hard refresh — no extra Vercel config needed.
+6. Vercel assigns a URL like `https://studyflow.vercel.app`. Go back to Render (step 5) and set
+   `CORS_ALLOWED_ORIGIN` to this exact URL, then redeploy the backend.
+
+## 7. Google / GitHub OAuth apps
+
+Add the production redirect URI to each app's existing console entry — these point at the
+**backend** (Render) domain, not Vercel, since Spring Security's OAuth2 flow is server-side (same
+app as local dev works, most providers allow multiple redirect URIs, no need for a second app):
+
+- Google Cloud Console → Credentials → your OAuth client → Authorized redirect URIs → add
+  `https://<your-render-domain>/login/oauth2/code/google`
+- GitHub → Settings → Developer settings → OAuth Apps → your app → add
+  `https://<your-render-domain>/login/oauth2/code/github`
+
+(Spring Security's default redirect template is `{baseUrl}/login/oauth2/code/{registrationId}` —
+no custom override in this codebase, so those are the exact paths.) After a successful OAuth
+login, the backend redirects the browser back to `studyflow.oauth2.frontend-redirect-origin`,
+which is set to the same value as `CORS_ALLOWED_ORIGIN` — i.e. your Vercel URL — so no separate
+config needed there.
 
 ## Known free-tier limits
 
@@ -87,5 +109,5 @@ frontend and backend share one origin.
   ~30–50s (cold start), not a bug.
 - **Voyage AI**: 3 requests/min / 10K tokens/min hard cap (no payment method on this account —
   same constraint already documented for local dev in `docs/DECISIONS.md`).
-- **Neon / Upstash / Supabase free tiers**: each has its own storage/bandwidth/request ceiling —
-  fine for a demo, not for real traffic.
+- **Neon / Upstash / Supabase / Vercel free tiers**: each has its own storage/bandwidth/request
+  ceiling — fine for a demo, not for real traffic.

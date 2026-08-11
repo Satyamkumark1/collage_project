@@ -48,11 +48,16 @@ studyflow:
     # com.studyflow.identity.oauth.OAuth2LoginSuccessHandler/FailureHandler.
     frontend-redirect-origin: ${CORS_ALLOWED_ORIGIN}
   cookie:
-    # Secure defaults for this base config (used as-is in prod). Local dev runs with the
-    # `local` profile active (see application-local.yml, run-dev.sh) which overrides these to
-    # work over plain http://localhost. See docs/DECISIONS.md.
+    # Secure defaults for this base config (used as-is in prod). Frontend (Vercel) and backend
+    # (Render) are different origins in prod, so the refresh cookie needs same-site: None
+    # (requires secure: true, which this config already sets) or the browser silently drops it
+    # on every cross-origin fetch — see docs/DECISIONS.md. CSRF on the cookie-authenticated
+    # endpoints is covered by the required X-Request-Id header (see SecurityConfig), which
+    # doesn't depend on SameSite. Local dev runs with the `local` profile active
+    # (application-local.yml, run-dev.sh) which overrides these to work over plain
+    # http://localhost.
     secure: true
-    same-site: Strict
+    same-site: None
     refresh-ttl-days: 30
   storage:
     # local (default, STORAGE_LOCAL_ROOT) or supabase (persistent, for hosts with ephemeral
