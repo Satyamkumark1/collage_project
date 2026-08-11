@@ -5,6 +5,44 @@ Silent deviation is the failure mode; this log is what makes deviation legitimat
 
 ---
 
+## 2026-08-11 — Free-tier deployment: Supabase Storage, single-jar bundling, Render
+
+**What changed:** Added `SupabaseStorageProvider` (`RestClient` over Supabase Storage's REST API,
+same posture as `RedisLoginLockStore`'s Upstash integration — one bucket, three verbs, no SDK
+dependency) as a second `StorageProvider`, selected via `studyflow.storage.provider`
+(`local`/`supabase`, default `local`, both `@ConditionalOnProperty`-gated so exactly one bean
+exists at runtime). Cloudinary stays permanently out per the existing entry below — this isn't
+that decision reversed, it's a different provider for the same "free hosts have ephemeral disk"
+problem `LocalDiskStorageProvider` can't solve on its own.
+
+Also added a root `Dockerfile` that builds the Vite frontend and copies its output into
+`src/main/resources/static` before packaging the backend jar — frontend and backend deploy as one
+image, one origin. `SpaWebConfig` (new, `@ConditionalOnResource` on the bundled `index.html`)
+serves it with an `index.html` fallback for React Router's client-side routes. `server.port` now
+binds to `${PORT:8080}` for hosts (Render) that assign the listen port at runtime.
+
+Database stays Neon, as already planned below — confirmed, not changed, when picking a compute
+host for this deployment.
+
+**Why:** Splitting frontend and backend across two free hosts (e.g. Vercel + Render) would put
+them on different origins, and `studyflow.cookie.same-site: Strict` silently drops the refresh
+cookie on any cross-origin fetch — auth breaks in prod, not in a way anything currently tests for
+since local dev already works around the equivalent problem with the `local` profile's
+`same-site: Lax`. Bundling into one image avoids that class of bug entirely rather than adding a
+`None`/cross-site cookie path that only exists for this deployment shape. Supabase Storage was
+picked over Cloudinary (still out) and over accepting ephemeral storage because the user already
+has a Supabase account — no new signup — and free-tier persistent object storage is the actual
+gap ephemeral container disks leave for a document-upload product.
+
+**What it costs:** Render's free web service spins down after 15 minutes idle (~30-50s cold start
+on the next request) — not fixable without a paid tier. `SupabaseStorageProvider` has no
+integration test against a real Supabase project (would need a second free account provisioned
+just for CI); it's a straight structural mirror of the already-tested `RedisLoginLockStore` REST
+pattern, but flagging the gap rather than claiming coverage that doesn't exist. Full runbook:
+`docs/DEPLOYMENT.md`.
+
+---
+
 ## 2026-08-11 — Google + GitHub OAuth social login
 
 **What changed:** Added Google and GitHub as alternate sign-in methods alongside email/password,

@@ -7,13 +7,17 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
  * Writes under {@code STORAGE_LOCAL_ROOT}, namespaced {@code users/{userId}/{documentId}/...}
  * (see specs/05-library-and-storage.md). Fails fast at boot if the root is unset or unwritable.
+ * Default provider — active unless {@code studyflow.storage.provider=supabase} (see
+ * {@link SupabaseStorageProvider}, used on free hosts with ephemeral disk).
  */
 @Component
+@ConditionalOnProperty(name = "studyflow.storage.provider", havingValue = "local", matchIfMissing = true)
 public class LocalDiskStorageProvider implements StorageProvider {
 
     private final Path root;
