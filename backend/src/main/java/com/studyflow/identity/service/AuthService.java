@@ -29,13 +29,15 @@ public class AuthService {
     private final RefreshTokenService refreshTokenService;
     private final JwtService jwtService;
     private final PasswordEncoder passwordEncoder;
+    private final LoginRateLimiter loginRateLimiter;
 
     public AuthService(UserRepository userRepository, RefreshTokenService refreshTokenService, JwtService jwtService,
-            PasswordEncoder passwordEncoder) {
+            PasswordEncoder passwordEncoder, LoginRateLimiter loginRateLimiter) {
         this.userRepository = userRepository;
         this.refreshTokenService = refreshTokenService;
         this.jwtService = jwtService;
         this.passwordEncoder = passwordEncoder;
+        this.loginRateLimiter = loginRateLimiter;
         this.dummyHash = passwordEncoder.encode(UUID.randomUUID().toString());
     }
 
@@ -66,14 +68,44 @@ public class AuthService {
     public record LoginResult(User user, String accessToken, String rawRefreshToken) {
     }
 
+    /**
+     * Find-by-verified-email-or-create for OAuth sign-ins (Google/GitHub already verified the
+     * email — see docs/DECISIONS.md). Mirrors {@link #login}'s tail: issue a fresh refresh-token
+     * family + access token, same {@link LoginResult} shape a password login returns.
+     */
+    @Transactional
+    public LoginResult oauthLogin(String email, String name, String userAgentHash, String ipHash) {
+        User user = userRepository.findByEmailAndDeletedAtIsNull(email).orElseGet(() -> {
+            User created = new User(email, dummyHash, name, null);
+            created.setEmailVerifiedAt(Instant.now());
+            try {
+                return userRepository.save(created);
+            } catch (DataIntegrityViolationException e) {
+                // Same race as register(): another request created this email concurrently.
+                return userRepository.findByEmailAndDeletedAtIsNull(email)
+                        .orElseThrow(() -> new ApiException(ErrorCode.AUTH_INVALID_CREDENTIALS,
+                                "Could not sign in with this account"));
+            }
+        });
+        user.setLastLoginAt(Instant.now());
+        userRepository.save(user);
+
+        RefreshTokenService.IssuedToken issued = refreshTokenService.issueNewFamily(user.getId(), userAgentHash,
+                ipHash);
+        String accessToken = jwtService.issueAccessToken(user, issued.entity().getFamilyId());
+        return new LoginResult(user, accessToken, issued.rawValue());
+    }
+
     @Transactional
     public LoginResult login(String email, String rawPassword, String userAgentHash, String ipHash) {
         var maybeUser = userRepository.findByEmailAndDeletedAtIsNull(email);
         String hashToCheck = maybeUser.map(User::getPasswordHash).orElse(dummyHash);
         boolean matches = passwordEncoder.matches(rawPassword, hashToCheck);
         if (maybeUser.isEmpty() || !matches) {
+            loginRateLimiter.recordFailure(email);
             throw new ApiException(ErrorCode.AUTH_INVALID_CREDENTIALS, "Invalid email or password");
         }
+        loginRateLimiter.recordSuccess(email);
         User user = maybeUser.get();
         user.setLastLoginAt(Instant.now());
         userRepository.save(user);

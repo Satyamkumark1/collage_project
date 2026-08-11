@@ -10,6 +10,8 @@ import com.studyflow.rag.repo.DocumentChunkRepository;
 import com.studyflow.study.repo.FlashcardRepository;
 import com.studyflow.study.repo.KeyPointRepository;
 import com.studyflow.study.repo.QuestionRepository;
+import com.studyflow.planner.repo.StudyPlanRepository;
+import com.studyflow.planner.repo.StudySessionRepository;
 import com.studyflow.study.repo.QuestionSetRepository;
 import com.studyflow.study.repo.QuizAnswerRepository;
 import com.studyflow.study.repo.QuizAttemptRepository;
@@ -115,6 +117,18 @@ class ArchitectureTest {
             .because("callers must use findByIdAndOwnerId instead — see specs/02-data-model.md");
 
     @ArchTest
+    static final ArchRule studyPlanRepositoryIsOwnerScoped = noClasses()
+            .that().resideOutsideOfPackage("com.studyflow.planner.repo")
+            .should().callMethod(StudyPlanRepository.class, "findById", Object.class)
+            .because("callers must use findByIdAndOwnerId instead — see specs/02-data-model.md");
+
+    @ArchTest
+    static final ArchRule studySessionRepositoryIsOwnerScoped = noClasses()
+            .that().resideOutsideOfPackage("com.studyflow.planner.repo")
+            .should().callMethod(StudySessionRepository.class, "findById", Object.class)
+            .because("callers must use findByIdAndOwnerId instead — see specs/02-data-model.md");
+
+    @ArchTest
     static final ArchRule conversationRepositoryIsOwnerScoped = noClasses()
             .that().resideOutsideOfPackage("com.studyflow.tutor.repo")
             .should().callMethod(ConversationRepository.class, "findById", Object.class)
@@ -209,6 +223,20 @@ class ArchitectureTest {
     @ArchTest
     static final ArchRule quizAnswerRepositoryDeclaresOwnerScopedFinder = classes()
             .that().areAssignableTo(QuizAnswerRepository.class)
+            .should(declareOwnerScopedFindById())
+            .because("owner-scoped repositories must expose findByIdAndOwnerId(UUID, UUID) — see "
+                    + "specs/02-data-model.md");
+
+    @ArchTest
+    static final ArchRule studyPlanRepositoryDeclaresOwnerScopedFinder = classes()
+            .that().areAssignableTo(StudyPlanRepository.class)
+            .should(declareOwnerScopedFindById())
+            .because("owner-scoped repositories must expose findByIdAndOwnerId(UUID, UUID) — see "
+                    + "specs/02-data-model.md");
+
+    @ArchTest
+    static final ArchRule studySessionRepositoryDeclaresOwnerScopedFinder = classes()
+            .that().areAssignableTo(StudySessionRepository.class)
             .should(declareOwnerScopedFindById())
             .because("owner-scoped repositories must expose findByIdAndOwnerId(UUID, UUID) — see "
                     + "specs/02-data-model.md");

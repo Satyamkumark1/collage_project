@@ -15,6 +15,10 @@ import org.springframework.stereotype.Component;
 public class DpdpGuard {
 
     public void requireConsentIfMinor(User user) {
+        if (!user.hasBirthYear()) {
+            throw new ApiException(ErrorCode.AUTH_BIRTH_YEAR_REQUIRED,
+                    "Confirm your birth year before using AI features");
+        }
         if (user.isMinor() && !user.hasGuardianConsent()) {
             throw new ApiException(ErrorCode.AUTH_GUARDIAN_CONSENT_REQUIRED,
                     "Users under 18 require verifiable parental consent before using AI features");

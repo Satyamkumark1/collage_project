@@ -62,16 +62,29 @@ invented numbers.
 
 ## Phase 5 — Infra hardening
 
-Cloudinary (replaces local disk `StorageProvider` impl), Upstash Redis (L1+L2 rate limiting, SSE
-job streaming, job pub/sub), Testcontainers (if Docker becomes available — replaces the local-test-
-DB deviation), full observability (Prometheus/Grafana/alerting/runbook), DOCX/PPTX parsing.
+**Status:** in progress, second slice done 2026-08-11.
+
+~~Cloudinary (replaces local disk `StorageProvider` impl)~~ — **dropped, user decision
+2026-08-11: local disk storage is permanent.** Upstash Redis (L1+L2 rate limiting, SSE job
+streaming, job pub/sub), Testcontainers (real Postgres in tests via Docker), full observability
+(Prometheus/Grafana/alerting/runbook), DOCX/PPTX parsing.
+
+DOCX/PPTX ingestion and the login-attempt L1 rate limiter landed first — the two tracks needing no
+external accounts (see `docs/DECISIONS.md`). An Upstash account and Docker are now available
+(user decision 2026-08-11); Redis's durable L2 login-lock slice and Testcontainers (replacing the
+local-`studyflow_test` deviation) have both landed — see `docs/DECISIONS.md`. SSE job streaming
+and job pub/sub are next, not blocked on anything anymore. Observability still has no stack
+decision made.
 
 ## Phase 6 — Billing
 
-Razorpay subscriptions, `plans`/`subscriptions` tables, plan-tiered quotas and job priority,
-webhook handling, usage dashboard.
+**Status:** dropped, 2026-08-11 — user decision, no Razorpay integration. No `plans`/
+`subscriptions` tables, no plan-tiered quotas/job priority. See `docs/DECISIONS.md`.
 
 ## Phase 7 — Planner, exports, admin
+
+**Status:** in progress, study planner done 2026-08-11 (see `docs/DECISIONS.md`) — started ahead
+of Phase 5/6's remaining tracks since those are blocked on external credentials and this isn't.
 
 Study planner (spaced revision scheduling, `.ics` export), server-rendered PDF/DOCX exports with
 Devanagari font support, admin read-only panel.

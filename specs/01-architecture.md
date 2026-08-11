@@ -29,9 +29,9 @@ rewriting code.
 
 | Path | Mode | Budget |
 |---|---|---|
-| Auth, CRUD, listing | Synchronous | p95 < 300ms |
+| Auth, CRUD, listing, study plan build | Synchronous | p95 < 300ms |
 | Tutor chat | Streaming SSE | First token < 2.5s |
-| Summary, key points, MCQs, flashcards, quiz build, study plan | **Async job** | Enqueue < 150ms; job completes 20–180s |
+| Summary, key points, MCQs, flashcards, quiz build | **Async job** | Enqueue < 150ms; job completes 20–180s |
 | Document ingestion (parse → chunk → embed) | **Async job** | 10–90s depending on page count |
 
 Anything on the async path returns `202 Accepted` with a `jobId` immediately. Never block a
@@ -57,7 +57,7 @@ com.studyflow
 ├── rag/           chunking, embedding, vector store, hybrid retrieval
 ├── study/         summaries (this phase); key points/flashcards/mcqs/quizzes [deferred]
 ├── tutor/         conversations, messages, streaming
-├── planner/       study plans, sessions, calendar export                      [deferred]
+├── planner/       study plans, sessions, calendar export (built Phase 7; PDF/DOCX exports deferred)
 ├── exports/       PDF/DOCX rendering                                          [deferred]
 ├── jobs/          queue, worker pool, sweeper, progress
 └── admin/         admin-only read models and moderation actions               [deferred]

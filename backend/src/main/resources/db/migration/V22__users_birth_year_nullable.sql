@@ -1,0 +1,1 @@
+ALTER TABLE users ALTER COLUMN birth_year DROP NOT NULL;

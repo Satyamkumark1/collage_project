@@ -5,3 +5,11 @@ studyflow:
     # See docs/DECISIONS.md.
     secure: false
     same-site: Lax
+
+server:
+  # Local-dev deviation: a browser with several extensions (large X-Client-Data / injected
+  # headers, accumulated cookies) can exceed Tomcat's 8KB default and get a hard "Request header
+  # is too large" rejection with no CORS headers on the response (which the browser then reports
+  # as a CORS failure, masking the real cause). Not raised in the base config — production has no
+  # reason to need headers this large, and a bigger limit is a bigger DoS surface per request.
+  max-http-header-size: 65536

@@ -1,6 +1,6 @@
 # Phase 7 — Planner, exports, admin
 
-**Status: ⬜ Not started**
+**Status: 🟡 In progress** — study planner done, exports/admin not started.
 
 ## Scope (per [`specs/ROADMAP.md`](../../specs/ROADMAP.md))
 
@@ -8,16 +8,44 @@ Study planner (exam-date-driven session scheduling, spaced revision insertion, `
 server-rendered PDF/DOCX exports with Devanagari font embedding (Unicode support for Hindi/Indian
 script notes), an admin read-only panel.
 
-## Why it hasn't started
+## What landed — Study planner (2026-08-11)
 
-Last phase in the sequence — depends on the study features (Phases 3-4) that a planner would
-schedule and an export would render.
+Started ahead of finishing Phase 5/6 because those remaining tracks are all blocked on external
+credentials (Cloudinary, Redis, Testcontainers, Razorpay) and the planner isn't — see
+`docs/DECISIONS.md` for the full writeup, including why plan build is synchronous rather than the
+async job the architecture table originally implied.
 
-## What it needs before starting
+- Migration `V21__study_plans.sql`: `study_plans` (document, owner, exam date), `study_sessions`
+  (per-plan scheduled dates). Both insert-only.
+- `StudySessionScheduler` — pure function, fixed spaced-repetition-style cadence
+  (`{21,14,10,7,5,3,2,1,0}` days before the exam, filtered to the actual window).
+- `StudyPlanService`/`StudyPlanController` — `POST /documents/{id}/study-plans`,
+  `GET /documents/{id}/study-plans`, `GET /study-plans/{id}`,
+  `GET /study-plans/{id}/export.ics` (hand-written RFC 5545, no new dependency).
+- `ArchitectureTest` extended to 32/32 (28 existing + 4 new for
+  `StudyPlanRepository`/`StudySessionRepository`).
+- Frontend: `StudyPlanner.tsx` (native `<input type="date">`, no picker library) at
+  `/documents/:id/planner`, nav-linked from Document Detail.
 
-- Nothing blocked on external accounts.
-- Devanagari font embedding for PDF/DOCX export needs a specific font-handling library decision
-  not yet made.
+Redacted verification — real Postgres, **no Groq/Voyage** (first study-feature test with zero
+real-API dependency, so no rate-limit fragility):
+
+```text
+cd backend && set -a && source .env && set +a \
+  && ./mvnw -q -Dtest=StudySessionSchedulerTest,ArchitectureTest,StudyPlanIntegrationTest test
+...
+Tests run: 5, Failures: 0 -- StudySessionSchedulerTest
+Tests run: 32, Failures: 0 -- ArchitectureTest
+Tests run: 2, Failures: 0 -- StudyPlanIntegrationTest
+```
+
+Frontend: `tsc -b` strict-mode clean, `oxlint` clean (no new warnings), `npm run build` clean.
+
+## What's next
+
+- **Exports** (PDF/DOCX, Devanagari font embedding) — needs a font-handling library decision, not
+  yet made.
+- **Admin read-only panel** — not started.
 
 ## Ongoing / cross-cutting work (not tied to a single phase)
 

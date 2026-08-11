@@ -1,7 +1,10 @@
 package com.studyflow.identity.config;
 
+import com.studyflow.identity.oauth.OAuth2LoginFailureHandler;
+import com.studyflow.identity.oauth.OAuth2LoginSuccessHandler;
 import com.studyflow.identity.service.JwtService;
 import com.studyflow.identity.web.JwtAuthenticationFilter;
+import java.time.Clock;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -36,19 +39,36 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder(BCRYPT_STRENGTH);
     }
 
+    /** Injected rather than calling Instant.now() directly, so LoginRateLimiter is deterministically
+     *  testable (advance a fake clock instead of real Thread.sleep) — see docs/DECISIONS.md. */
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtService jwtService) throws Exception {
+    public Clock clock() {
+        return Clock.systemUTC();
+    }
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtService jwtService,
+            OAuth2LoginSuccessHandler oAuth2LoginSuccessHandler, OAuth2LoginFailureHandler oAuth2LoginFailureHandler)
+            throws Exception {
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(csrf -> csrf.disable())
             .httpBasic(basic -> basic.disable())
             .formLogin(form -> form.disable())
-            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            // IF_REQUIRED, not STATELESS: OAuth2Login's default authorization-request repository
+            // needs an HttpSession to stash the in-flight request between redirect-out and
+            // callback. A session is created only during that few-second handshake — every
+            // JWT-authenticated API call still never touches HttpSession. See docs/DECISIONS.md.
+            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/actuator/health").permitAll()
                 .requestMatchers("/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/refresh",
                         "/api/v1/auth/logout").permitAll()
+                .requestMatchers("/oauth2/**", "/login/oauth2/**").permitAll()
                 .anyRequest().authenticated())
+            .oauth2Login(oauth2 -> oauth2
+                .successHandler(oAuth2LoginSuccessHandler)
+                .failureHandler(oAuth2LoginFailureHandler))
             .addFilterBefore(new JwtAuthenticationFilter(jwtService), UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }

@@ -10,6 +10,7 @@ import com.studyflow.identity.dto.LoginRequest;
 import com.studyflow.identity.dto.RegisterRequest;
 import com.studyflow.identity.dto.RegisterResponse;
 import com.studyflow.identity.service.AuthService;
+import com.studyflow.identity.service.LoginRateLimiter;
 import com.studyflow.identity.service.RefreshTokenService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -29,15 +30,18 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/auth")
 public class AuthController {
 
-    static final String REFRESH_COOKIE_NAME = "refresh_token";
-    static final String REFRESH_COOKIE_PATH = "/api/v1/auth";
+    public static final String REFRESH_COOKIE_NAME = "refresh_token";
+    public static final String REFRESH_COOKIE_PATH = "/api/v1/auth";
 
     private final AuthService authService;
     private final CookieProperties cookieProperties;
+    private final LoginRateLimiter loginRateLimiter;
 
-    public AuthController(AuthService authService, CookieProperties cookieProperties) {
+    public AuthController(AuthService authService, CookieProperties cookieProperties,
+            LoginRateLimiter loginRateLimiter) {
         this.authService = authService;
         this.cookieProperties = cookieProperties;
+        this.loginRateLimiter = loginRateLimiter;
     }
 
     @PostMapping("/register")
@@ -51,6 +55,7 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<AccessTokenResponse> login(@Valid @RequestBody LoginRequest request,
             HttpServletRequest httpRequest) {
+        loginRateLimiter.checkNotLocked(request.email());
         AuthService.LoginResult result = authService.login(request.email(), request.password(),
                 hash(httpRequest.getHeader("User-Agent")), hash(clientIp(httpRequest)));
         return ResponseEntity.ok()

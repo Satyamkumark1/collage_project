@@ -39,4 +39,14 @@ class DpdpGuardTest {
 
         assertThatCode(() -> guard.requireConsentIfMinor(minor)).doesNotThrowAnyException();
     }
+
+    @Test
+    void blocksOauthUserWithoutBirthYearYet() {
+        User oauthUser = new User("oauth@example.com", "hash", "OAuth User", null);
+
+        assertThatThrownBy(() -> guard.requireConsentIfMinor(oauthUser))
+                .isInstanceOf(ApiException.class)
+                .extracting(ex -> ((ApiException) ex).code())
+                .isEqualTo(ErrorCode.AUTH_BIRTH_YEAR_REQUIRED);
+    }
 }

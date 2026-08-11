@@ -3,6 +3,10 @@
 
 export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080/api/v1";
 
+// Spring Security's OAuth2 endpoints (/oauth2/authorization/{id}) are framework-level, not under
+// our REST API path — derive the bare backend origin from API_BASE rather than hardcoding it.
+export const BACKEND_ORIGIN = API_BASE.replace(/\/api\/v1\/?$/, "");
+
 // Access token lives in memory only, per specs/04-identity-and-security.md — never persisted,
 // so a full page reload always goes through the refresh-cookie flow in AuthContext.
 let accessToken: string | null = null;

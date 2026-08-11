@@ -20,11 +20,16 @@ Always return `429` with `Retry-After` and `retryAfterSeconds` in the body (`RAT
 
 ## This phase — deviation
 
-No Redis (see `/docs/DECISIONS.md`), so **only the L1 in-process bucket exists**, and only for
-login attempts (per email) — the bucket most directly tied to a security property (credential
-stuffing resistance) rather than a cost-control property. AI-job-creation and upload rate limits
-are not yet enforced by a token bucket; `usage_counters`-based monthly quotas (see
-[12-billing-and-quotas.md](12-billing-and-quotas.md)) provide the cost-control backstop instead.
+Only login attempts (per email) have a real bucket — the one most directly tied to a security
+property (credential stuffing resistance) rather than a cost-control property. AI-job-creation and
+upload rate limits are not yet enforced by a token bucket; `usage_counters`-based monthly quotas
+(see [12-billing-and-quotas.md](12-billing-and-quotas.md)) provide the cost-control backstop
+instead.
 
-Full L1+L2 rate limiting, the `RATE_LIMITED` error code, and the rest of the bucket table are
-deferred to the phase where Redis is introduced — see `ROADMAP.md`.
+Login's own L1/L2 split (added 2026-08-11, see `/docs/DECISIONS.md`) isn't the sliding-window
+bucket this file describes above — L2 here durably stores only the established *lock* (via
+Upstash's REST API, not a TCP client/sliding-window structure), not a shared request-rate window
+across instances. Full L1+L2 sliding-window rate limiting for the rest of the bucket table (AI-job
+creation, uploads) is still deferred — Cloudinary and Razorpay are permanently out (user decision,
+not "revisit when an account exists"), but Redis itself is now available; this is a "hasn't been
+built yet" gap, not a "blocked on credentials" one.

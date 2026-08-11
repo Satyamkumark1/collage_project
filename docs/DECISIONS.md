@@ -5,6 +5,352 @@ Silent deviation is the failure mode; this log is what makes deviation legitimat
 
 ---
 
+## 2026-08-11 — Google + GitHub OAuth social login
+
+**What changed:** Added Google and GitHub as alternate sign-in methods alongside email/password,
+via Spring Security's `oauth2Login` (`CommonOAuth2Provider`, no explicit authorization/token/
+jwk-set URIs needed for either). An OAuth sign-in ends with the identical access-token +
+HttpOnly-refresh-cookie pair a password login produces (`AuthService.oauthLogin`, mirroring
+`login()`'s tail) — nothing downstream needs to know which method was used. No dedicated frontend
+callback page: `OAuth2LoginSuccessHandler` sets the cookie and redirects straight to
+`/library`; `AuthContext`'s existing mount-time `apiRefresh()` picks it up.
+
+- **Match-by-verified-email, no linking table.** An OAuth email that matches an existing
+  (however-created) account signs into it. Provider-verified email is trusted at the same level
+  as a password-reset loop; no `oauth_accounts` table since nothing needs multi-provider
+  bookkeeping yet.
+- **`users.birth_year` becomes nullable** (`V22__users_birth_year_nullable.sql`, `User.birthYear`
+  now boxed `Short`). Neither provider's profile includes birth year, which the DPDP age gate
+  needs. `null` means "hasn't completed the post-OAuth profile step" — `DpdpGuard` throws the new
+  `AUTH_BIRTH_YEAR_REQUIRED` (403) before its existing minor/consent check, reusing every AI-
+  feature call site with no new gate wiring. `/me` exposes `birthYearRequired`; the frontend's
+  `ProtectedRoute` redirects to a new `/complete-profile` page (`PATCH /me/birth-year`) until it's
+  set.
+- **GitHub's `email` can be null** for private-email accounts — `OAuth2UserInfoResolver` requests
+  `user:email` scope and falls back to a real call to `/user/emails` with the access token Spring
+  already obtained, preferring the verified+primary address. Never guesses; throws rather than
+  creating a broken account if no verified email can be resolved.
+- **OAuth-created accounts get a random, unusable BCrypt hash** (`AuthService`'s existing
+  `dummyHash`) instead of a nullable `password_hash` column — every other password-comparison path
+  stays unchanged. `email_verified_at` is set immediately (the provider verified it, more honest
+  than password registration's existing auto-verify deviation).
+- **Session policy: `STATELESS` → `IF_REQUIRED`.** OAuth2Login's default authorization-request
+  repository needs an `HttpSession` to stash the in-flight request between redirect-out and
+  callback. `IF_REQUIRED` only creates one during that few-second handshake; every JWT-
+  authenticated API call still never touches `HttpSession`. A custom cookie-based repository would
+  preserve full statelessness but isn't worth the code for a handshake that lasts seconds.
+
+**Why:** User request — wanted Google/GitHub login in addition to email/password. Considered
+Clerk first (user's suggestion) but it either replaces the whole session system (defeats the
+"same session model" goal) or, restricted to just its OAuth buttons, needs a hand-rolled JWKS
+verifier and a third external account for less functionality than Spring Security's built-in
+`oauth2Login` already provides — surfaced this tradeoff back to the user, who chose to stay with
+native Spring Security OAuth2Login.
+
+**What it costs:** Real Google/GitHub OAuth app credentials (`GOOGLE_CLIENT_ID/SECRET`,
+`GITHUB_CLIENT_ID/SECRET` in `backend/.env`) are required before either button works in a browser
+— until then `/oauth2/authorization/{google,github}` 500s at the provider redirect. Automated
+tests can't drive the real browser-redirect + consent-screen flow, so coverage is
+`AuthService.oauthLogin` directly against real Postgres (`OAuthLoginIntegrationTest`) and
+`OAuth2UserInfoResolver`'s GitHub fallback against a `MockWebServer` fake
+(`OAuth2UserInfoResolverTest`) — the real end-to-end path still needs a manual browser walkthrough
+per this file's own verification-loop rule, same as every other phase's UI sign-off.
+
+---
+
+## 2026-08-11 — Groq multi-key rotation, round-robin across accounts
+
+**What changed:** `GroqAiProvider` now round-robins the `Authorization` header across a pool of
+Groq API keys (`studyflow.ai.groq.api-keys`, comma-separated `GROQ_API_KEYS` env var, falling back
+to the single `GROQ_API_KEY` if unset) instead of one fixed key baked into the `RestClient` at
+construction. A plain `AtomicInteger` counter, no smarter "retry a different key on 429" loop —
+the job engine's own backoff/retry already re-invokes `complete`/`streamComplete` on transient
+failure, and each fresh invocation naturally lands on the next key. `GroqModelAvailabilityChecker`
+(a one-off startup check) still uses the single `studyflow.ai.groq.api-key`, unaffected.
+
+**Why:** This account's real Groq tier has no payment method and a tight rate ceiling (documented
+since Phase 2) — under real interactive use (not just test-suite bursts), it was sustaining
+`TRANSIENT_FAILURE` on MCQ/flashcard/quiz generation for minutes at a time. Groq's rate limits are
+per-API-key/account, so N independent accounts' keys genuinely multiply the effective request
+budget by N — the only real fix available without a paid Groq plan.
+
+**What it costs:** Nothing functional — 1-key deployments behave identically to before
+(round-robin over a 1-element list is a no-op). Voyage AI has the same documented constraint (3
+RPM, no payment method) and isn't covered by this change — only Groq was reported as the live
+blocker; the identical rotation pattern would apply to `VoyageEmbeddingClient` if that becomes the
+bottleneck next.
+
+---
+
+## 2026-08-11 — Phase 5: Testcontainers lands, supersedes the local-`studyflow_test` deviation
+
+**What changed:** Integration tests now run against a real, hermetic Postgres started by
+Testcontainers (`pgvector/pgvector:pg15` image) instead of the shared local Homebrew
+`studyflow_test` database — Docker is available now (user decision), closing the gap the original
+"Testcontainers -> local Postgres" entry left open.
+
+- **One container for the whole JVM/surefire fork, not one per test class.** With 16
+  `@SpringBootTest` classes, a fresh container per class would make the suite unusably slow.
+  `TestcontainersPostgresExtension` is a JUnit5 global extension (auto-detected via
+  `junit-platform.properties` + `META-INF/services/org.junit.jupiter.api.extension.Extension`)
+  whose static initializer starts the container once, before any Spring context loads, and calls
+  `System.setProperty("DB_URL", ...)` — this deliberately avoids editing all 16 existing test
+  files to extend a shared base class or add `@DynamicPropertySource`. `src/test/resources/
+  application.yml`'s datasource block now reads `${DB_URL}`/`${DB_USER}`/`${DB_PASSWORD}` (was
+  hardcoded to `jdbc:postgresql://localhost:5432/studyflow_test`) — the system properties win
+  over the real `.env` `DB_URL` because JVM system properties outrank OS environment variables in
+  Spring's property source order.
+- **`withInitScript` doesn't work in Testcontainers 2.0.5** (`NoClassDefFoundError` on a missing
+  shaded `commons-io` class internal to that method) — not used; see the migration fix below
+  instead, which makes any container-level workaround unnecessary.
+- **Found and fixed a real, previously-hidden migration-ordering bug**: `V7__chunk_embeddings.sql`
+  (uses the `vector` column type) runs before `V10__pgvector_extension.sql` (creates the
+  extension). This only ever worked against a database where pgvector had been manually
+  pre-installed out-of-band before Flyway first ran — exactly the kind of gap hermetic,
+  from-scratch testing exists to catch, and it wasn't just a test-only problem: recreating the
+  local `studyflow_dev` database (to clear the unrelated V12/V13 drift from the entry below) hit
+  the identical failure starting the real dev server, proving this was a genuine bug in the
+  migration sequence itself, not a Testcontainers quirk. `V7`/`V10` are already-applied,
+  checksummed migrations elsewhere and can't be renumbered (same immutability lesson as that
+  entry) — fixed instead with a new `V6.1__pgvector_extension_early.sql` (Flyway supports dotted
+  version numbers to insert a migration between two existing ones), which creates the extension
+  before `V7` needs it; `V10`'s own `CREATE EXTENSION IF NOT EXISTS` still runs harmlessly
+  afterward. This is a real, permanent fix in the migration sequence, not a container-side
+  workaround — `TestcontainersPostgresExtension` needs nothing extra for it.
+- **Version pinned explicitly** (`org.testcontainers:postgresql:1.21.4`, the latest 1.x as of this
+  session) rather than 2.x (also available) — 1.x's API (`PostgreSQLContainer`, `DockerImageName`,
+  `asCompatibleSubstituteFor`) is the one this change was written and verified against; 2.x may
+  have restructured packages, not worth the risk for an unverified jump.
+
+**Why:** Removes the "must have a pre-configured local Postgres with pgvector built from source"
+onboarding step entirely — `mvn test` now works on a clean machine with only Docker installed, and
+every run gets a genuinely fresh database (no more manual-setup drift like the `studyflow_dev`
+V12/V13 checksum incident earlier this phase).
+
+**What it costs:** `mvn test` now needs Docker running (was previously optional if a local
+Postgres 15+pgvector already existed). First-run image pull adds a few seconds; per-class latency
+is otherwise comparable to the old shared-DB setup. Full non-eval suite: 101/109 passed on real
+Postgres+Groq+Voyage+Upstash in one run; the 8 failures were the already-documented Groq/Voyage
+rate-limit shape (7, see every prior phase's identical caveat) plus one `JobDispatcherIntegrationTest`
+timing flake under full-suite load — confirmed 4/4 passing standalone immediately after, so not a
+Testcontainers regression, same "each test class passes cleanly run on its own" caveat already
+accepted throughout this project.
+
+---
+
+## 2026-08-11 — Phase 5: Redis L2 login-lock durability (Upstash REST, no TCP client)
+
+**What changed:** Cloudinary and Razorpay are out by user decision — local disk storage and no
+billing stay permanent, not "revisit when an account exists." Redis (Upstash) and Docker
+(Testcontainers) were unblocked instead; this entry covers the first Redis slice: durable,
+restart-surviving login lockouts.
+
+- **Upstash's REST API, not a TCP Redis client.** One command a login check needs (`SET ... EX`,
+  `TTL`) doesn't justify adding `spring-boot-starter-data-redis` + Jedis/Lettuce when the app
+  already has an HTTP client (`RestClient`, same as the Groq/Voyage adapters) and Upstash's REST
+  API is plain `POST /{command}/{args...}`. `RedisLoginLockStore` mirrors
+  `VoyageEmbeddingClient`'s `RestClient` construction pattern exactly.
+- **`LoginLockStore` is an interface** (one real implementation) purely so
+  `LoginRateLimiterTest` can stay a fast, deterministic, network-free unit test of L1's arithmetic
+  — same reason that test already injects a fake `Clock` instead of calling `Instant.now()`
+  directly. The real L2 durability behavior gets its own real-Upstash test in
+  `LoginRateLimitIntegrationTest`.
+- **L2 stores only the established lock, not the sub-threshold failure count.** A restart forgets
+  a partial streak (0-4 failures) and starts the window over — a minor, acceptable leniency. It
+  cannot forget an actual lock: `recordFailure` writes the lock through to Redis the moment L1
+  crosses the threshold, and `checkNotLocked` falls through to a Redis `TTL` check whenever L1 has
+  no record for that key (the case a restart produces). This is deliberately narrower than
+  durably tracking every count — durable protection against *sustained* attack is the property
+  that matters, per this repo's own existing L1 framing; forgiving a forgotten partial streak
+  isn't a security hole.
+- **Keys are `SHA-256(normalized email)`, never the raw address** — same posture as
+  `refresh_tokens.user_agent_hash`/`ip_hash`, and sidesteps ever needing to URL-encode an
+  arbitrary email into a REST path segment.
+- **Fails open on any Redis error** (caught `RestClientException`, logged, treated as "not
+  locked"). A Redis hiccup must not become a self-inflicted login outage; L1 alone already
+  protected every account before this change and still does if L2 is unreachable.
+- **No `clear()` on login success.** Redis TTLs self-expire; `recordSuccess` only ever fires after
+  `checkNotLocked` already found no active lock (L1 or L2), so there is nothing for L2 to hold at
+  that point — a `DEL` call there would just be a wasted round trip.
+
+**Why:** Closes a real gap in the L1-only limiter shipped earlier this phase: an attacker who can
+force or wait out an app restart previously got a free reset. L2 makes the lock itself durable
+without paying for full cross-instance failure-count sync, which nothing in this deployment needs
+yet (single instance).
+
+**What it costs:** One new external dependency (a free-tier Upstash account) instead of zero.
+`LoginRateLimiterTest` (5 tests, `Clock` + a no-op `LoginLockStore` stub, no network) and
+`LoginRateLimitIntegrationTest` (3 tests, real Postgres + real Upstash, including
+`aLockKnownOnlyToRedisStillBlocksLogin` — seeds L2 directly, bypassing L1, to prove the exact
+post-restart scenario) both pass. `ArchitectureTest` unaffected (32/32 — no new owner-scoped
+repository). **Found and fixed along the way:** `src/test/resources/application.yml` is a
+hand-maintained, full duplicate of the main `application.yml` for the test classpath (not a
+profile overlay) — any new top-level `studyflow.*` config key silently doesn't exist in tests
+unless added to both files. This cost real debugging time (`PlaceholderResolutionException`
+looked like a broken env var, but `System.getenv` proved the OS environment was fine — the test
+classpath's `application.yml` was simply a different, older file). Worth remembering for the next
+new config key.
+
+---
+
+## 2026-08-11 — Phase 7 opens early: study planner, before Phase 5/6 finish
+
+**What changed:** Started Phase 7 (`study_plans`/`study_sessions`, migration `V21__study_plans.sql`,
+`com.studyflow.planner` package) ahead of finishing Phase 5's remainder or starting Phase 6 —
+Cloudinary, Redis, Testcontainers, observability (Phase 5) and Razorpay (Phase 6) all remain
+blocked on external credentials/tools not available in this environment. The planner needs none,
+so it's the actual next unblocked work; sequencing by what's buildable, not by roadmap order.
+
+- **Study-plan build is synchronous, not the async job `specs/01-architecture.md`'s table
+  classifies it as.** An exam date plus a fixed spacing cadence is pure arithmetic — no LLM call,
+  nothing that takes 20-180s. Manufacturing an LLM call just to match the table would be the
+  opposite of honoring it (the same reasoning kept quiz-build async in Phase 4, for the opposite
+  reason: it genuinely calls one). `POST /documents/{id}/study-plans` returns `201` synchronously.
+  Not gated on `DocumentStatus.READY` or DPDP consent either — no chunk/text access, no AI cost,
+  same posture as `FlashcardController.review`.
+- **Spacing cadence** (invented, no master-spec text ever covered planner numbers — same situation
+  as quizzes, see `specs/15-PENDING.md`): fixed days-before-exam offsets
+  `{21, 14, 10, 7, 5, 3, 2, 1, 0}`, filtered to whatever fits before the exam date — denser near
+  the exam, standard spaced-repetition-style backload. `StudySessionScheduler` is a pure function
+  (no DB/HTTP), same posture as `Sm2Calculator`/`QuizScorer`, with its own plain-JUnit test.
+- **`.ics` is hand-written**, not a new dependency (e.g. iCal4j) — one `VEVENT` per session is a
+  handful of RFC 5545 lines, not enough surface to justify a library.
+- **No session completion tracking.** Sessions are calendar entries, not a todo list — nothing
+  asked for a "mark done" mutation, so it doesn't exist. Both tables are insert-only, same posture
+  as `question_sets`/`quizzes`.
+- **`STUDY_PLAN_NOT_FOUND`** (404) added, same "GET by id needs a not-found code" gap as every
+  prior phase.
+
+**Why:** Same posture as every other invented-number entry — designed fresh under real
+constraints, documented instead of silently assumed.
+
+**What it costs:** Nothing functional — `StudySessionSchedulerTest` (5 cases: past exam, exam
+today, 1 day out, 10 days out, 30+ days out) and `StudyPlanIntegrationTest` (2 tests: full
+create→list→get→`.ics`-export round trip, not-found) both pass deterministically against real
+Postgres — this is the first study-feature integration test with **no** Groq/Voyage dependency,
+so no rate-limit fragility. `ArchitectureTest` is 32/32 (28 existing + 4 new for
+`StudyPlanRepository`/`StudySessionRepository`).
+
+---
+
+## 2026-08-11 — Phase 5, checkpoints A+B: DOCX/PPTX ingestion, login-attempt L1 rate limiter
+
+**What changed:** The first slice of Phase 5 ("Infra hardening," `specs/ROADMAP.md`) — the two
+tracks that need zero external accounts, chosen specifically because Cloudinary, Redis, and
+Testcontainers all remain blocked on credentials/tools not yet available in this environment (see
+the existing deviation entries below for each).
+
+**Checkpoint A — DOCX/PPTX ingestion** (migration `V20__documents_docx_pptx.sql`, widening
+`documents.file_type`'s CHECK; `DocumentFileType.DOCX`/`PPTX`; new `DocxDocumentParser`/
+`PptxDocumentParser`, both implementing the existing `DocumentParser` interface with zero dispatch
+changes needed):
+
+- **Dependency: `org.apache.poi:poi-ooxml:5.5.1`** — current stable as of this session (confirmed
+  via Maven Central/POI's own site). Single artifact covers both XWPF (DOCX) and XSLF (PPTX).
+- **Sniffing DOCX vs. PPTX**: both are OOXML zip containers sharing the same `PK\x03\x04` magic
+  bytes, so `DocumentUploadService.sniff()` peeks at zip entry *names* (`word/document.xml` ->
+  DOCX, `ppt/presentation.xml` -> PPTX) via `java.util.zip.ZipInputStream` — this reads local-file-
+  header metadata only, never decompresses entry data, so it carries no zip-bomb risk itself and
+  isn't fooled by a renamed-extension attack (a plain `.zip` renamed to `.docx` still gets
+  `FILE_TYPE_UNSUPPORTED` — regression-tested).
+- **Password-protected DOCX/PPTX fall through to `FILE_TYPE_UNSUPPORTED`, not `FILE_ENCRYPTED`.**
+  OOXML container encryption wraps the file in an OLE2/CFB compound document (different magic
+  bytes entirely), so it never matches the zip sniff. Detecting that specifically would mean
+  parsing the OLE2 directory just to improve an error message for a file that's unprocessable
+  either way — not built. A small, accepted gap, not a silent one.
+- **Zip-bomb protection**: Apache POI's `ZipSecureFile` applies `minInflateRatio=0.01` (1%) and
+  `maxEntrySize=4GiB` globally by default to every OOXML load. The existing 25 MiB upload cap
+  already bounds worst-case decompression to ~2.4 GiB via the ratio check alone, but the 4 GiB
+  per-entry default does nothing useful at that input size — `PoiZipBombProtectionConfig` tightens
+  `maxEntrySize` to **200 MiB** at boot (a hard, deterministic backstop well above any legitimate
+  DOCX/PPTX entry under the upload cap). `minInflateRatio` is left at POI's own default — already
+  the conservative, widely-used threshold. Residual gap: `ZipSecureFile` bounds *per-entry*, not
+  cumulative, decompression across a whole archive with many entries each individually under
+  threshold — closed cheaply for PPTX specifically with a **300-slide cap**
+  (`PptxDocumentParser`, reusing the existing `FILE_TOO_LARGE` code), generous headroom above any
+  realistic lecture deck. DOCX has no equivalent per-unit count (whole document = one page), so no
+  analogous cap applies there; DOCX is also far less prone to extreme compression ratios (XML/text-
+  heavy, not image-heavy) than a PPTX deck.
+- **DOCX = one `ParsedPage`** (whole document), same reasoning `PlainTextDocumentParser` already
+  applies to TXT/MD: DOCX has no reliable structural page-boundary concept (page breaks are a
+  layout-engine computation, not a stored fact). **PPTX = one `ParsedPage` per slide**, mirroring
+  `PdfDocumentParser`'s per-page loop, since PPTX does have a natural page unit. PPTX also reuses
+  PDF's "avg chars/page < 100 -> `FILE_NO_TEXT_LAYER`" scanned-image heuristic — arguably more
+  relevant here given how common image-heavy slide decks are. Speaker notes are deliberately not
+  extracted — "page = what's visibly on the slide," matching PDF's contract.
+- **Testing**: a new layer for this codebase — plain-JUnit parser unit tests
+  (`DocxDocumentParserTest`/`PptxDocumentParserTest`, no Spring context, generating minimal valid
+  bytes with POI itself rather than a checked-in binary fixture, since there's no trivial hand-
+  writable minimal-OOXML string the way `MINIMAL_PDF` exists for PDF). One real end-to-end test
+  (`PptxIngestionIntegrationTest`, real Postgres + real Voyage) — PPTX only, not DOCX, since DOCX's
+  pipeline shape is structurally identical to the already-proven TXT/MD path; PPTX's multi-page
+  shape is the genuinely new interaction (multiple `ParsedPage`s through chunking), avoiding
+  doubled real-embedding-API cost for redundant coverage.
+
+**Checkpoint B — login-attempt L1 rate limiter** (`LoginRateLimiter`, `ErrorCode.RATE_LIMITED`):
+
+- **This closes a real, pre-existing gap, not a new feature.** `specs/06-rate-limiting.md` and this
+  file's own earlier "Upstash Redis -> none" entry both already *claimed* an in-process L1
+  login-attempt limiter existed this whole time — a full code search found it was never actually
+  built. Everything below just makes that claim true.
+- **In-memory only** (`ConcurrentHashMap<String, Bucket>`, `Bucket` an immutable record, mutated
+  via `compute()` — atomic per key, no global lock), no new dependency (Bucket4j/Caffeine/etc. were
+  considered and skipped — the one thing a library buys, cross-instance correctness, is explicitly
+  L2/Redis's later job, not L1's, per the spec's own two-tier framing). Resets on restart —
+  intentional, matches "L1: cheap, absorbs bursts."
+- **Numbers**: 5 failures / 15 min window (spec-given). Exponential lockout, invented (spec only
+  says "then exponential lockout," no formula): `minutes = min(60, 1 * 2^tier)` — 1, 2, 4, 8, 16,
+  32, capped at 60. Tier persists across lockout cycles for the same bucket, resets only on a
+  success or 2h of idle eviction (`@Scheduled(fixedDelay=300_000)`, folded directly into
+  `LoginRateLimiter` since nothing else consumes this map). The 60-minute cap (not unbounded) is
+  deliberate: this app has no admin-unlock flow yet, so an unbounded lock could permanently strand
+  a real student out of their own account; durable protection against sustained attack is
+  explicitly L2/Redis's later job.
+- **Email normalization is correctness-critical**: keyed on
+  `email.strip().toLowerCase(Locale.ROOT)`, matching `users.email`'s `citext` semantics. Without
+  it, case variations of the same address would each get an independent attempt budget — a
+  complete bypass (regression-tested).
+- **Where the check runs, split across two layers**: `checkNotLocked` in `AuthController.login()`
+  (before `authService.login(...)` is ever called, so a locked-out request never opens a DB
+  transaction or runs BCrypt); `recordFailure`/`recordSuccess` inside `AuthService.login()` itself,
+  since they depend on the actual DB-lookup-and-password-check outcome. No filter/interceptor —
+  `AuthController.login()` is the only call site, and a filter would need its own request-body-
+  parsing complexity for a decision scoped to one endpoint's one field.
+- **User-enumeration resistance preserved**: both calls key on the raw submitted email string,
+  never on whether the account exists — the existing dummy-hash timing-safe path is untouched. The
+  locked-out response (429 vs 401) is unavoidably distinguishable regardless of which layer checks
+  first; rejecting early doesn't leak anything the response wouldn't already disclose.
+- **`java.time.Clock` injected** (new bean in `SecurityConfig`, alongside the existing
+  `passwordEncoder()`) rather than calling `Instant.now()` directly, so `LoginRateLimiterTest` can
+  advance a fake clock deterministically instead of a real `Thread.sleep` — same spirit as this
+  repo's existing "backdate a DB timestamp" pattern for time-dependent tests
+  (`FlashcardGenerationIntegrationTest`, the quiz EXAM-expiry test), applied to in-memory state.
+- **Known, explicitly-accepted residual gap**: no per-IP throttle yet, so many distinct fake emails
+  (each individually under the lockout threshold) could still grow the map's entry count within a
+  2h window before the sweep catches up. This is exactly what `specs/06-rate-limiting.md`'s
+  separate per-IP bucket is for — already correctly deferred to the full L1+L2 matrix when Redis
+  lands, not a new gap introduced here.
+
+**Why:** Both were chosen as the first Phase 5 slice specifically because they need no external
+credentials — Cloudinary, Redis, and Testcontainers all remain blocked on accounts/tools the
+project doesn't have yet (see the existing entries below). Per this repo's own §0 rule, one working
+vertical slice at a time rather than shallow scaffolding across all five Phase 5 tracks at once.
+
+**What it costs:** Nothing functional. `ArchitectureTest` stays 28/28 (neither checkpoint adds an
+owner-scoped repository). `DocxDocumentParserTest`/`PptxDocumentParserTest` (7 tests),
+`DocumentUploadIntegrationTest` (7 tests, 3 new), `PptxIngestionIntegrationTest` (1 test, real
+Postgres + real Voyage), `LoginRateLimiterTest` (5 tests), `LoginRateLimitIntegrationTest` (2
+tests, real Postgres), and the pre-existing `AuthFlowIntegrationTest` (regression check, 6 tests)
+all pass. Frontend `tsc -b`/`npm run build`/`oxlint` clean. Manually verified end to end against a
+running local instance (pointed at `studyflow_test`, not `studyflow_dev` — see the existing
+migration-drift entry below): real `.docx`/`.pptx` uploads reached `READY` with correct file
+type/MIME/char count; 5 real failed logins against a real account then a 6th returned `429` +
+`Retry-After: 60` + `RATE_LIMITED` + `retryAfterSeconds: 60` exactly as designed. The rest of Phase
+5 (Cloudinary, Redis L2/SSE/pub-sub, Testcontainers, observability) starts once the user confirms
+the relevant credentials/tools are ready.
+
+---
+
 ## 2026-08-10 — Phase 4: quiz build/mode/scoring design, server-authoritative timing
 
 **What changed:** Quizzes (`quizzes`, `quiz_attempts`, `quiz_answers`, migration
@@ -343,8 +689,12 @@ no daemon reachable). A local Postgres 15 server is already running and reachabl
 **What it costs:** Tests are not hermetic across machines/CI the way Testcontainers would be —
 `studyflow_test` must exist and be migrated before tests run, and test isolation between runs
 depends on a `DatabaseCleaner` truncating tables rather than a fresh container per run. The spec's
-actual intent (real Postgres, not mocks) is preserved. Revisit when Docker is available —
-datasource config is structured so switching back is a config change, not a rewrite.
+actual intent (real Postgres, not mocks) is preserved.
+
+**Update 2026-08-11: superseded.** Docker is now available — see the "Testcontainers lands" entry
+above. It genuinely was closer to "a config change" than "a rewrite," though not quite as trivial
+as originally hoped (a JUnit global-extension singleton container plus a real, previously-hidden
+migration-ordering bug it surfaced) — see that entry for the details.
 
 ---
 
@@ -358,8 +708,9 @@ implementation writing to `STORAGE_LOCAL_ROOT`, instead of Cloudinary (`resource
 
 **What it costs:** No CDN, no signed time-limited delivery URLs, no offloading of storage from the
 app server. Upload is also a direct multipart `POST /documents` instead of the spec's presigned
-upload-intent + direct-to-Cloudinary two-step (see next entry). Revisit when a Cloudinary account
-exists — swapping in a `CloudinaryStorageProvider` is additive.
+upload-intent + direct-to-Cloudinary two-step (see next entry). Swapping in a
+`CloudinaryStorageProvider` is still additive if this changes, but **update 2026-08-11: permanent,
+by user decision, not "revisit when an account exists."** No Cloudinary integration is planned.
 
 ---
 
@@ -392,7 +743,12 @@ overhead yet.
 **What it costs:** No shared rate-limit state across instances (irrelevant — single instance),
 no L2 sliding-window correctness for AI-job-creation/upload buckets (monthly `usage_counters`
 quotas are the backstop instead), no real-time job-progress push (polling is the spec's own
-documented fallback path, not a lesser mode). Revisit in Phase 5 (see `specs/ROADMAP.md`).
+documented fallback path, not a lesser mode).
+
+**Update 2026-08-11: superseded.** An Upstash account now exists — see the "Redis L2 login-lock
+durability" entry above for the first slice built on it (login lockouts only; the AI-job/upload
+sliding-window buckets and SSE job-progress streaming described in `specs/06-rate-limiting.md`
+are still not built, but they're no longer blocked on an account, just not-yet-done).
 
 ---
 
@@ -406,7 +762,10 @@ limit set in `application.yml` stands in for plan-tiered quotas.
 **What it costs:** No real monetization path yet, no plan-tiered job priority. The
 `usage_counters` enforcement mechanism itself (atomic upsert at enqueue time) is still real, so
 introducing real plans later changes where the limit number comes from, not the enforcement code
-path. Revisit in Phase 6.
+path.
+
+**Update 2026-08-11: permanent, by user decision, not "revisit in Phase 6."** No Razorpay
+integration is planned — Phase 6 (Billing) is dropped from the roadmap.
 
 ---
 

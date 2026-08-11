@@ -9,5 +9,6 @@ public record MeResponse(
         String role,
         boolean emailVerified,
         boolean isMinor,
-        boolean guardianConsentRequired) {
+        boolean guardianConsentRequired,
+        boolean birthYearRequired) {
 }

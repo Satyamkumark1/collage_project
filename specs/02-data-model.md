@@ -70,6 +70,12 @@ optimistic lock — same rationale as `flashcards`), `created_at`.
 (nullable — an explicit clear), `answered_at`. Unique `(attempt_id, question_id)`, upserted
 incrementally as the student answers.
 
+**study_plans** [now, Phase 7] — `id`, `document_id`, `owner_id`, `exam_date`, `created_at`.
+Insert-only, same posture as `quizzes` — a new exam date makes a new plan.
+
+**study_sessions** [now, Phase 7] — `id`, `plan_id`, `document_id`, `owner_id`, `scheduled_date`,
+`created_at`. No status/completion tracking — see `docs/DECISIONS.md`.
+
 ## Tables — deferred (shape reference only, not created yet)
 
 **email_tokens** [deferred] — verify/reset email flow; auto-verify is used instead this phase.
@@ -90,8 +96,6 @@ lists in [10-study-features.md](10-study-features.md) (not yet transcribed into 
 **conversations, messages** [deferred] — tutor chat, see [09-rag.md](09-rag.md) grounding
 contract for the shape these need.
 
-**study_plans, study_sessions** [deferred] — see [10-study-features.md](10-study-features.md).
-
 **exports** [deferred] — PDF/DOCX render output metadata.
 
 **audit_events** [deferred] — append-only admin/security audit log.
@@ -109,6 +113,8 @@ contract for the shape these need.
 - `quizzes (document_id, owner_id, created_at DESC)`
 - `quiz_attempts (owner_id, started_at DESC)`, `quiz_attempts (quiz_id, owner_id)`
 - `quiz_answers (attempt_id, owner_id)`
+- `study_plans (document_id, owner_id, created_at DESC)`
+- `study_sessions (plan_id, owner_id)`
 - Every foreign key gets an index on the child side.
 
 ## Tenancy enforcement
@@ -120,8 +126,8 @@ repository's bare `findById` is called from outside its own package — callers 
 `findByIdAndOwnerId(id, ownerId)`. Covers, this phase: `DocumentRepository`,
 `DocumentChunkRepository`, `AiJobRepository`, `AiCallRepository`, `SummaryRepository`. (This list
 predates Phase 2/3's own owner-scoped repositories — see `ArchitectureTest` itself for the
-authoritative, currently-enforced set: 28 rules as of Phase 4, covering every owner-scoped
-repository added through `QuizRepository`/`QuizAttemptRepository`/`QuizAnswerRepository`.)
+authoritative, currently-enforced set: 32 rules as of Phase 7, covering every owner-scoped
+repository added through `StudyPlanRepository`/`StudySessionRepository`.)
 
 Postgres RLS as defence-in-depth is noted in the original spec but not implemented this phase —
 would need verifying the connection pooler preserves `SET LOCAL app.user_id` within a transaction,

@@ -56,6 +56,7 @@ the frontend, keyed by `code` — never render `detail` directly to a user.
 | `QUIZ_ATTEMPT_EXPIRED` | 409 | EXAM-mode answer write attempted after the server-authoritative deadline; the attempt was auto-finalized (added during build, Phase 4 — not in original spec, which couldn't have anticipated the concrete timing-enforcement mechanics) |
 | `QUIZ_ATTEMPT_NOT_IN_PROGRESS` | 409 | Answer write attempted on an attempt that's already terminal (`SUBMITTED`/`EXPIRED`) (added during build, Phase 4) |
 | `QUIZ_ATTEMPT_NOT_SUBMITTED` | 409 | Result requested while the attempt is still `IN_PROGRESS` — `EXPIRED`/`SUBMITTED` attempts are allowed; distinct from `QUIZ_ATTEMPT_NOT_IN_PROGRESS` because it's the opposite attempt-state condition (added during build, Phase 4) |
+| `STUDY_PLAN_NOT_FOUND` | 404 | Owner-scoped GET found no matching study plan (added during build, Phase 7) |
 | `NOT_FOUND` | 404 | Unmapped route (added during build) |
 | `INTERNAL_ERROR` | 500 | Unhandled exception, never leaks detail (added during build) |
 
@@ -110,6 +111,13 @@ when the features that raise them are built.
   `EXPIRED`/`SUBMITTED` are both allowed) — none of this group takes an `Idempotency-Key`;
   synchronous CRUD, no job/LLM call involved
 
+**Planner** (Phase 7 — see [10-study-features.md](10-study-features.md); no `Idempotency-Key`,
+synchronous CRUD, no LLM call — see `docs/DECISIONS.md` for why this deviates from
+[01-architecture.md](01-architecture.md)'s async classification)
+- `POST /documents/{id}/study-plans` `{examDate}` → `201` with sessions embedded
+- `GET /documents/{id}/study-plans` · `GET /study-plans/{id}`
+- `GET /study-plans/{id}/export.ics` → `text/calendar`
+
 **Tutor** (Phase 2 — see [09-rag.md](09-rag.md) §Grounding contract)
 - `POST /documents/{id}/conversations` → 201 `{id, documentId, createdAt}`
 - `GET /documents/{id}/conversations` (cursor-paginated) · `GET /conversations/{id}`
@@ -125,5 +133,5 @@ when the features that raise them are built.
 **Ops**
 - `GET /actuator/health` (public liveness)
 
-Endpoints for the planner, exports, billing, and admin are in the original spec's endpoint map and
-will be added to this file phase by phase — see `ROADMAP.md`.
+Endpoints for exports, billing, and admin are in the original spec's endpoint map and will be
+added to this file phase by phase — see `ROADMAP.md`.

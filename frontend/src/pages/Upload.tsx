@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { uploadDocument } from "../api/documents";
 import { ApiError } from "../api/client";
 
-const ACCEPTED_EXTENSIONS = [".pdf", ".txt", ".md"];
+const ACCEPTED_EXTENSIONS = [".pdf", ".txt", ".md", ".docx", ".pptx"];
 
 export function Upload() {
   const navigate = useNavigate();
@@ -37,7 +37,7 @@ export function Upload() {
   return (
     <div className="page page-narrow">
       <h1>Upload notes</h1>
-      <p className="hint">PDF, TXT, or MD — up to 25 MB.</p>
+      <p className="hint">PDF, TXT, MD, DOCX, or PPTX — up to 25 MB.</p>
 
       {mutation.isError && (
         <div className="error-banner" role="alert">
@@ -93,7 +93,7 @@ function errorMessageFor(error: unknown): string {
   if (error instanceof ApiError) {
     switch (error.code) {
       case "FILE_TYPE_UNSUPPORTED":
-        return "That file type isn't supported yet — try PDF, TXT, or MD.";
+        return "That file type isn't supported — try PDF, TXT, MD, DOCX, or PPTX.";
       case "FILE_TOO_LARGE":
         return "That file is too large (25 MB limit).";
       case "AUTH_GUARDIAN_CONSENT_REQUIRED":

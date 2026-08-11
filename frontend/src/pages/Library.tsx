@@ -48,7 +48,7 @@ export function Library() {
 
       {data && data.items.length === 0 && (
         <div className="empty-state">
-          <p>No documents yet. Upload a PDF, TXT, or MD file to get started.</p>
+          <p>No documents yet. Upload a PDF, TXT, MD, DOCX, or PPTX file to get started.</p>
           <Link to="/upload" className="button button-primary">
             Upload your first document
           </Link>
